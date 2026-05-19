@@ -35,6 +35,7 @@ class TruthTable:
     density: float
     influences: list[float]
     active_vars: list[int]
+    shannon_scores: list[float]
 
 
 @dataclass(frozen=True)
@@ -55,6 +56,7 @@ class CandidateResult:
     case: str
     initial_method: str
     flow_name: str
+    flow_commands: str
     area: int | None = None
     delay: int | None = None
     adp: int | None = None
@@ -62,6 +64,19 @@ class CandidateResult:
     selected: bool = False
     status: str = "ERROR"
     aig: Path | None = None
+
+
+@dataclass(frozen=True)
+class CaseSummary:
+    case: str
+    baseline_area: int
+    baseline_delay: int
+    baseline_adp: int
+    best_area: int
+    best_delay: int
+    best_adp: int
+    improvement_ratio: float
+    selected_method: str
 
 
 POST_FLOWS = [
@@ -73,6 +88,89 @@ POST_FLOWS = [
     PostFlow("llm_mix_1", "rewrite -z; refactor -z; dc2; rewrite -z; balance"),
     PostFlow("llm_mix_2", "dc2; drw; drf; rewrite; dc2; balance"),
 ]
+
+GA_COMMAND_POOL = [
+    "balance",
+    "rewrite",
+    "rewrite -z",
+    "refactor",
+    "refactor -z",
+    "dc2",
+    "drw",
+    "drf",
+]
+
+TOP_FLOW_NAMES = [
+    "llm_mix_1",
+    "llm_mix_2",
+    "area_dc2",
+    "adp_balanced",
+    "drw_drf",
+]
+
+
+def split_commands(commands: str) -> list[str]:
+    return [part.strip() for part in commands.split(";") if part.strip()]
+
+
+def join_commands(commands: list[str]) -> str:
+    return "; ".join(commands)
+
+
+def mutate_flow(commands: list[str], rng: random.Random) -> list[str]:
+    child = commands[:]
+    if not child:
+        child = [rng.choice(GA_COMMAND_POOL)]
+    operation = rng.choice(["insert", "delete", "replace", "swap"])
+    if operation == "insert" and len(child) < 8:
+        child.insert(rng.randrange(len(child) + 1), rng.choice(GA_COMMAND_POOL))
+    elif operation == "delete" and len(child) > 2:
+        del child[rng.randrange(len(child))]
+    elif operation == "replace":
+        child[rng.randrange(len(child))] = rng.choice(GA_COMMAND_POOL)
+    elif operation == "swap" and len(child) > 1:
+        pos = rng.randrange(len(child) - 1)
+        child[pos], child[pos + 1] = child[pos + 1], child[pos]
+    if child[-1] != "balance":
+        child.append("balance")
+    return child[:8]
+
+
+def crossover_flow(left: list[str], right: list[str], rng: random.Random) -> list[str]:
+    if not left:
+        return right[:]
+    if not right:
+        return left[:]
+    left_cut = rng.randrange(1, len(left) + 1)
+    right_cut = rng.randrange(0, len(right))
+    child = left[:left_cut] + right[right_cut:]
+    if len(child) > 8:
+        child = child[:8]
+    if child and child[-1] != "balance":
+        child.append("balance")
+    return child or [rng.choice(GA_COMMAND_POOL), "balance"]
+
+
+def make_ga_flows(case: str, seed: int, count: int) -> list[PostFlow]:
+    rng = random.Random(f"{seed}:{case}:ga")
+    parents = [split_commands(flow.commands) for flow in POST_FLOWS if flow.commands]
+    flows: list[PostFlow] = []
+    seen = {flow.commands for flow in POST_FLOWS}
+    attempts = 0
+    while len(flows) < count and attempts < count * 40:
+        attempts += 1
+        if rng.random() < 0.35 and len(parents) >= 2:
+            left, right = rng.sample(parents, 2)
+            child = crossover_flow(left, right, rng)
+        else:
+            child = mutate_flow(rng.choice(parents), rng)
+        command_text = join_commands(child)
+        if command_text in seen:
+            continue
+        seen.add(command_text)
+        parents.append(child)
+        flows.append(PostFlow(f"ga_{len(flows):02d}", command_text))
+    return flows
 
 
 def abc_path(path: Path, root: Path) -> str:
@@ -97,6 +195,12 @@ def run_abc(abc: Path, command: str, timeout: int, cwd: Path) -> str:
     if result.returncode != 0:
         raise RuntimeError(result.stdout.strip() or f"ABC exited with {result.returncode}")
     return result.stdout
+
+
+def binary_entropy(value: float) -> float:
+    if value <= 0.0 or value >= 1.0:
+        return 0.0
+    return -(value * math.log2(value) + (1.0 - value) * math.log2(1.0 - value))
 
 
 def read_truth(path: Path) -> TruthTable:
@@ -131,18 +235,31 @@ def read_truth(path: Path) -> TruthTable:
     total = num_outputs * num_minterms
 
     influences: list[float] = []
+    shannon_scores: list[float] = []
     active_vars: list[int] = []
     for var in range(num_inputs):
         bit_pos = num_inputs - 1 - var
         step = 1 << bit_pos
         period = step << 1
         diff = 0
+        ones0 = 0
+        ones1 = 0
         for bits in outputs:
             for base in range(0, num_minterms, period):
                 for offset in range(step):
-                    diff += bits[base + offset] ^ bits[base + offset + step]
-        influence = diff / ((num_minterms // 2) * num_outputs)
+                    low = bits[base + offset]
+                    high = bits[base + offset + step]
+                    ones0 += low
+                    ones1 += high
+                    diff += low ^ high
+        pair_count = (num_minterms // 2) * num_outputs
+        influence = diff / pair_count
+        density0 = ones0 / pair_count
+        density1 = ones1 / pair_count
+        balance = 1.0 - abs(density0 - density1)
+        score = 0.55 * influence + 0.25 * balance + 0.20 * (binary_entropy(density0) + binary_entropy(density1)) / 2.0
         influences.append(influence)
+        shannon_scores.append(score)
         if influence > 0.0:
             active_vars.append(var)
 
@@ -156,6 +273,7 @@ def read_truth(path: Path) -> TruthTable:
         density=on_count / total,
         influences=influences,
         active_vars=active_vars,
+        shannon_scores=shannon_scores,
     )
 
 
@@ -420,7 +538,7 @@ def write_bdd_blif(path: Path, model: str, table: TruthTable, order: list[int], 
     builder.finish(signals, path)
 
 
-def make_initial_candidates(case: str, table: TruthTable, tmp: Path, seed: int) -> list[InitialCandidate]:
+def make_initial_candidates(case: str, table: TruthTable, tmp: Path, seed: int, use_bdd: bool) -> list[InitialCandidate]:
     tmp.mkdir(parents=True, exist_ok=True)
     candidates = [InitialCandidate("abc_truth", "truth", None)]
 
@@ -442,16 +560,18 @@ def make_initial_candidates(case: str, table: TruthTable, tmp: Path, seed: int) 
         candidates.append(InitialCandidate("recursive_factored_sop", "blif", blif))
 
     active = table.active_vars
-    if len(active) <= 18:
+    if use_bdd and len(active) <= 18:
         orders = [
             ("bdd_original", active),
             ("bdd_high_influence", sorted(active, key=lambda var: table.influences[var], reverse=True)),
             ("bdd_low_influence", sorted(active, key=lambda var: table.influences[var])),
+            ("bdd_balanced_shannon", sorted(active, key=lambda var: table.shannon_scores[var], reverse=True)),
         ]
         rng = random.Random(f"{seed}:{case}:bdd")
-        random_order = active[:]
-        rng.shuffle(random_order)
-        orders.append(("bdd_random_seeded", random_order))
+        for index in range(3):
+            random_order = active[:]
+            rng.shuffle(random_order)
+            orders.append((f"bdd_random_seeded_{index}", random_order))
         for name, order in orders:
             try:
                 blif = tmp / f"{case}_{name}.blif"
@@ -460,6 +580,59 @@ def make_initial_candidates(case: str, table: TruthTable, tmp: Path, seed: int) 
             except RuntimeError:
                 continue
     return candidates
+
+
+def choose_candidate_pairs(
+    initials: list[InitialCandidate],
+    flows: list[PostFlow],
+    max_candidates: int,
+) -> list[tuple[InitialCandidate, PostFlow]]:
+    by_flow = {flow.name: flow for flow in flows}
+    abc_initials = [initial for initial in initials if initial.method == "abc_truth"]
+    custom_initials = [initial for initial in initials if initial.method != "abc_truth"]
+    ga_names = [flow.name for flow in flows if flow.name.startswith("ga_")]
+    priority_names = TOP_FLOW_NAMES + ga_names[:2]
+
+    ordered: list[tuple[InitialCandidate, PostFlow]] = []
+
+    def add(initial: InitialCandidate, flow: PostFlow) -> None:
+        pair = (initial, flow)
+        if pair not in ordered:
+            ordered.append(pair)
+
+    for initial in abc_initials:
+        for flow in POST_FLOWS:
+            add(initial, flow)
+    for initial in custom_initials:
+        for name in priority_names:
+            if name in by_flow:
+                add(initial, by_flow[name])
+    for initial in custom_initials:
+        for flow in POST_FLOWS:
+            add(initial, flow)
+    for initial in initials:
+        for flow in flows:
+            add(initial, flow)
+
+    return ordered[:max_candidates]
+
+
+def pareto_frontier(results: list[CandidateResult]) -> list[CandidateResult]:
+    equivalent = [row for row in results if row.equivalent and row.area is not None and row.delay is not None]
+    frontier: list[CandidateResult] = []
+    for row in equivalent:
+        dominated = False
+        for other in equivalent:
+            if other is row or other.area is None or other.delay is None or row.area is None or row.delay is None:
+                continue
+            no_worse = other.area <= row.area and other.delay <= row.delay
+            strictly_better = other.area < row.area or other.delay < row.delay
+            if no_worse and strictly_better:
+                dominated = True
+                break
+        if not dominated:
+            frontier.append(row)
+    return frontier
 
 
 def synthesize(
@@ -511,7 +684,9 @@ def optimize_case(
     seed: int,
     timeout_per_case: int,
     root: Path,
-) -> list[CandidateResult]:
+    use_ga: bool,
+    use_bdd: bool,
+) -> tuple[list[CandidateResult], CaseSummary]:
     truth = benchmarks / f"{case}.truth"
     table = read_truth(truth)
     tmp = logs / "tmp" / case
@@ -519,10 +694,13 @@ def optimize_case(
         shutil.rmtree(tmp)
     tmp.mkdir(parents=True, exist_ok=True)
 
-    initials = make_initial_candidates(case, table, tmp, seed)
-    pairs = [(initial, flow) for initial in initials for flow in POST_FLOWS][:max_candidates]
+    initials = make_initial_candidates(case, table, tmp, seed, use_bdd)
+    ga_flows = make_ga_flows(case, seed, max(4, max_candidates // 4)) if use_ga else []
+    flows = POST_FLOWS + ga_flows
+    pairs = choose_candidate_pairs(initials, flows, max(1, max_candidates))
     results: list[CandidateResult] = []
     best: CandidateResult | None = None
+    baseline: CandidateResult | None = None
     deadline = time.monotonic() + timeout_per_case
 
     for index, (initial, flow) in enumerate(pairs):
@@ -530,13 +708,15 @@ def optimize_case(
         if remaining <= 1:
             break
         candidate_aig = tmp / f"{case}_{index:03d}_{initial.method}_{flow.name}.aig"
-        result = CandidateResult(case, initial.method, flow.name, aig=candidate_aig)
+        result = CandidateResult(case, initial.method, flow.name, flow.commands, aig=candidate_aig)
         try:
             synthesize(abc, truth, initial, flow, candidate_aig, min(remaining, 120), root)
             result.equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 120), root)
             if result.equivalent:
                 result.area, result.delay, result.adp = measure_adp(abc, candidate_aig, min(remaining, 120), root)
                 result.status = "OK"
+                if initial.method == "abc_truth" and flow.name == "identity":
+                    baseline = result
                 if best is None or (result.adp is not None and result.adp < (best.adp or 10**30)):
                     best = result
             else:
@@ -548,11 +728,39 @@ def optimize_case(
         results.append(result)
 
     if best is None:
-        raise RuntimeError(f"{case}: no equivalent candidate found")
+        fallback_aig = tmp / f"{case}_fallback_baseline.aig"
+        fallback_flow = PostFlow("identity", "")
+        fallback_initial = InitialCandidate("abc_truth", "truth", None)
+        fallback = CandidateResult(case, "abc_truth", "identity", "", aig=fallback_aig)
+        synthesize(abc, truth, fallback_initial, fallback_flow, fallback_aig, 120, root)
+        fallback.equivalent = is_equivalent(abc, truth, fallback_aig, 120, root)
+        if not fallback.equivalent:
+            raise RuntimeError(f"{case}: no equivalent candidate found")
+        fallback.area, fallback.delay, fallback.adp = measure_adp(abc, fallback_aig, 120, root)
+        fallback.status = "OK"
+        results.append(fallback)
+        best = fallback
+        baseline = fallback
+
+    if baseline is None:
+        baseline = best
     best.selected = True
     output.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(best.aig, output / f"{case}.aig")
-    return results
+    assert baseline.area is not None and baseline.delay is not None and baseline.adp is not None
+    assert best.area is not None and best.delay is not None and best.adp is not None
+    summary = CaseSummary(
+        case=case,
+        baseline_area=baseline.area,
+        baseline_delay=baseline.delay,
+        baseline_adp=baseline.adp,
+        best_area=best.area,
+        best_delay=best.delay,
+        best_adp=best.adp,
+        improvement_ratio=baseline.adp / best.adp if best.adp else 0.0,
+        selected_method=f"{best.initial_method}/{best.flow_name}",
+    )
+    return results, summary
 
 
 def write_results_csv(path: Path, rows: list[CandidateResult]) -> None:
@@ -560,7 +768,18 @@ def write_results_csv(path: Path, rows: list[CandidateResult]) -> None:
     with path.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["case", "initial_method", "flow_name", "area", "delay", "adp", "equivalent", "selected", "status"],
+            fieldnames=[
+                "case",
+                "initial_method",
+                "flow_name",
+                "flow_commands",
+                "area",
+                "delay",
+                "adp",
+                "equivalent",
+                "selected",
+                "status",
+            ],
         )
         writer.writeheader()
         for row in rows:
@@ -569,6 +788,7 @@ def write_results_csv(path: Path, rows: list[CandidateResult]) -> None:
                     "case": row.case,
                     "initial_method": row.initial_method,
                     "flow_name": row.flow_name,
+                    "flow_commands": row.flow_commands,
                     "area": row.area if row.area is not None else "",
                     "delay": row.delay if row.delay is not None else "",
                     "adp": row.adp if row.adp is not None else "",
@@ -579,25 +799,109 @@ def write_results_csv(path: Path, rows: list[CandidateResult]) -> None:
             )
 
 
+def write_summary_csv(path: Path, rows: list[CaseSummary]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "case",
+                "baseline_area",
+                "baseline_delay",
+                "baseline_adp",
+                "best_area",
+                "best_delay",
+                "best_adp",
+                "improvement_ratio",
+                "selected_method",
+            ],
+        )
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    "case": row.case,
+                    "baseline_area": row.baseline_area,
+                    "baseline_delay": row.baseline_delay,
+                    "baseline_adp": row.baseline_adp,
+                    "best_area": row.best_area,
+                    "best_delay": row.best_delay,
+                    "best_adp": row.best_adp,
+                    "improvement_ratio": f"{row.improvement_ratio:.6f}",
+                    "selected_method": row.selected_method,
+                }
+            )
+
+
+def format_case_analysis(case: str, table: TruthTable) -> str:
+    influence_text = ", ".join(f"x{i}:{value:.4f}" for i, value in enumerate(table.influences))
+    score_text = ", ".join(f"x{i}:{value:.4f}" for i, value in enumerate(table.shannon_scores))
+    active_text = ", ".join(f"x{i}" for i in table.active_vars) or "(none)"
+    return "\n".join(
+        [
+            f"case: {case}",
+            f"inputs: {table.num_inputs}",
+            f"outputs: {table.num_outputs}",
+            f"minterms/output: {table.num_minterms}",
+            f"on_count: {table.on_count}",
+            f"off_count: {table.off_count}",
+            f"density: {table.density:.6f}",
+            f"active_vars: {active_text}",
+            f"influences: {influence_text}",
+            f"balanced_shannon_scores: {score_text}",
+        ]
+    )
+
+
+def print_report_stats(results: list[CandidateResult], summaries: list[CaseSummary]) -> None:
+    selected = [row for row in results if row.selected]
+    frontier_size = sum(len(pareto_frontier([row for row in results if row.case == summary.case])) for summary in summaries)
+    method_counts: dict[str, int] = {}
+    for row in selected:
+        key = f"{row.initial_method}/{row.flow_name}"
+        method_counts[key] = method_counts.get(key, 0) + 1
+    total_baseline = sum(row.baseline_adp for row in summaries)
+    total_best = sum(row.best_adp for row in summaries)
+    print("[report] cases:", len(summaries))
+    print("[report] baseline_total_adp:", total_baseline)
+    print("[report] best_total_adp:", total_best)
+    if total_best:
+        print("[report] total_improvement_ratio:", f"{total_baseline / total_best:.4f}")
+    print("[report] pareto_frontier_candidates:", frontier_size)
+    print("[report] selected_methods:")
+    for method, count in sorted(method_counts.items(), key=lambda item: (-item[1], item[0])):
+        print(f"  {method}: {count}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Hybrid AIG optimizer")
     group = parser.add_mutually_exclusive_group()
     group.add_argument("--case", help="run one benchmark, for example ex200")
     group.add_argument("--all", action="store_true", help="run ex200 through ex299")
     group.add_argument("--range", nargs=2, metavar=("START", "END"), help="run an inclusive case range")
+    parser.add_argument("--analyze-case", help="print truth-table features and exit")
     parser.add_argument("--abc", type=Path, default=Path("student/abc"))
     parser.add_argument("--benchmarks", type=Path, default=Path("benchmarks"))
     parser.add_argument("--output", type=Path, default=Path("output"))
     parser.add_argument("--logs", type=Path, default=Path("student/logs"))
-    parser.add_argument("--max-candidates", type=int, default=24)
+    parser.add_argument("--max-candidates", type=int, default=40)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--timeout-per-case", type=int, default=300)
+    parser.add_argument("--no-ga", action="store_true", help="disable deterministic GA-generated ABC flows")
+    parser.add_argument("--no-bdd", action="store_true", help="disable custom BDD/Shannon initial synthesis")
+    parser.add_argument("--report-stats", action="store_true", help="print report-oriented aggregate statistics")
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
     root = Path.cwd()
+    if args.analyze_case:
+        truth = args.benchmarks / f"{args.analyze_case}.truth"
+        table = read_truth(truth)
+        print(format_case_analysis(args.analyze_case, table))
+        return 0
+
     if args.case:
         cases = [args.case]
     elif args.range:
@@ -608,9 +912,10 @@ def main() -> int:
         cases = [f"ex{i}" for i in range(200, 300)]
 
     all_results: list[CandidateResult] = []
+    summaries: list[CaseSummary] = []
     for case in cases:
         print(f"[{case}] optimizing")
-        rows = optimize_case(
+        rows, summary = optimize_case(
             case,
             args.abc,
             args.benchmarks,
@@ -620,12 +925,18 @@ def main() -> int:
             args.seed,
             args.timeout_per_case,
             root,
+            not args.no_ga,
+            not args.no_bdd,
         )
         all_results.extend(rows)
+        summaries.append(summary)
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     write_results_csv(args.logs / "results.csv", all_results)
+    write_summary_csv(args.logs / "summary.csv", summaries)
+    if args.report_stats:
+        print_report_stats(all_results, summaries)
     return 0
 
 

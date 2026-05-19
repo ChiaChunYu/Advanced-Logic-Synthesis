@@ -22,13 +22,18 @@ optimization:
 - SOP construction for sparse functions.
 - POS-style construction for dense functions by synthesizing the off-set and
   inverting the output.
-- Shannon/BDD-style construction with multiple variable orderings.
+- Shannon/BDD-style construction with multiple variable orderings, including
+  original order, high-influence-first, low-influence-first,
+  balanced-Shannon-score-first, and deterministic random orders.
 - Recursive factoring of SOP cubes when the cover is small enough.
+- Deterministic GA-generated ABC post-optimization flows using insert, delete,
+  replace, swap, and crossover mutations over ABC commands.
+- Pareto frontier tracking for equivalent candidates by area and delay.
 
 Each initial circuit is written as BLIF or generated through ABC, then optimized
-with several post-flows such as area-oriented, delay-oriented, ADP-balanced, and
-LLM-inspired ABC command sequences.  A candidate is selected only if ABC proves
-it equivalent to the original truth table.
+with several post-flows such as area-oriented, delay-oriented, ADP-balanced,
+LLM-inspired, and GA-generated ABC command sequences.  A candidate is selected
+only if ABC proves it equivalent to the original truth table.
 
 ## Basic Commands
 
@@ -52,6 +57,12 @@ Run a smaller inclusive range for testing:
 python3 student/flow_optimizer.py --range ex200 ex209
 ```
 
+Analyze a benchmark without generating an AIG:
+
+```bash
+python3 student/flow_optimizer.py --analyze-case ex200
+```
+
 If your path contains spaces, run from the project root and pass relative paths:
 
 ```bash
@@ -64,7 +75,7 @@ python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
 Limit the number of initial/flow candidate pairs per case:
 
 ```bash
-python3 student/flow_optimizer.py --all --max-candidates 24
+python3 student/flow_optimizer.py --all --max-candidates 40
 ```
 
 Use a deterministic random seed:
@@ -77,6 +88,19 @@ Set a per-case timeout:
 
 ```bash
 python3 student/flow_optimizer.py --all --timeout-per-case 240
+```
+
+Disable optional search components:
+
+```bash
+python3 student/flow_optimizer.py --all --no-ga
+python3 student/flow_optimizer.py --all --no-bdd
+```
+
+Print report-oriented aggregate statistics:
+
+```bash
+python3 student/flow_optimizer.py --all --report-stats
 ```
 
 ## Outputs
@@ -96,7 +120,19 @@ student/logs/results.csv
 The CSV records:
 
 ```text
-case, initial_method, flow_name, area, delay, adp, equivalent, selected
+case, initial_method, flow_name, flow_commands, area, delay, adp, equivalent, selected
+```
+
+The summary CSV is:
+
+```text
+student/logs/summary.csv
+```
+
+It records:
+
+```text
+case, baseline_area, baseline_delay, baseline_adp, best_area, best_delay, best_adp, improvement_ratio, selected_method
 ```
 
 ## Verified Result
@@ -111,7 +147,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 17230005
+Total ADP over equivalent cases: 17000059
 ```
 
 ## Notes
