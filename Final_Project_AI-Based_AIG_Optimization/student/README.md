@@ -1,34 +1,19 @@
 # Flow Optimizer Usage
 
-This file explains how to run `flow_optimizer.py`, the AI/LLM-guided ABC flow
-search script for this project.
+This folder keeps the original baseline optimizer and the improved
+circuit-type-aware optimizer separate.
 
-## Purpose
+## Files
 
-`optimizer.py` is the original baseline script. It only runs:
-
-```text
-read_truth -xf <benchmark>; st; write_aiger -s <output>
-```
-
-`flow_optimizer.py` is the improved optimizer. For each benchmark, it tries
-multiple ABC optimization command flows, checks equivalence, measures area and
-delay, then keeps the equivalent AIG with the lowest ADP:
-
-```text
-ADP = area * delay
-```
+- `optimizer.py`: original baseline script. Keep this unchanged as the simple
+  reference implementation.
+- `flow_optimizer.py`: AI/LLM-inspired circuit-type-aware optimizer. It analyzes
+  each truth table, classifies the likely circuit type, searches ABC flows, checks
+  equivalence, and keeps the equivalent AIG with the lowest ADP.
 
 ## Basic Commands
 
-Run one case quickly:
-
-```bash
-python3 student/flow_optimizer.py --case ex200 --fast
-python3 evaluate.py --case ex200
-```
-
-Run one case with all candidate flows:
+Run one benchmark:
 
 ```bash
 python3 student/flow_optimizer.py --case ex200
@@ -38,70 +23,86 @@ python3 evaluate.py --case ex200
 Run all 100 benchmarks:
 
 ```bash
-python3 student/flow_optimizer.py
+python3 student/flow_optimizer.py --all
 python3 evaluate.py
 ```
 
-## Output Files
+If your path contains spaces, run from the project root and pass relative paths:
 
-The best AIG for each case is written to:
-
-```text
-output/exNNN.aig
+```bash
+python3 student/flow_optimizer.py --all --abc student/abc --benchmarks benchmarks --output output
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
 ```
 
-The experiment summary is written to:
+## Analysis Commands
 
-```text
-student/results.csv
+Print extracted truth-table features:
+
+```bash
+python3 student/flow_optimizer.py --analyze-case ex200
 ```
 
-The CSV records each case's best flow, area, delay, ADP, and number of tried
-flows. This file is useful when writing the final report.
+Print the predicted circuit labels and classification reasons:
+
+```bash
+python3 student/flow_optimizer.py --classify-case ex200
+```
 
 ## Useful Options
 
-Use only the first few faster flows:
+Limit the number of candidate flows per case:
 
 ```bash
-python3 student/flow_optimizer.py --fast
+python3 student/flow_optimizer.py --all --max-candidates 20
 ```
 
-Run a single benchmark:
+Use a deterministic random seed:
 
 ```bash
-python3 student/flow_optimizer.py --case ex200
+python3 student/flow_optimizer.py --all --seed 42
 ```
 
-Keep temporary candidate AIG files for debugging:
+Set a per-case timeout:
+
+```bash
+python3 student/flow_optimizer.py --all --timeout-per-case 300
+```
+
+Keep temporary AIG files for debugging:
 
 ```bash
 python3 student/flow_optimizer.py --case ex200 --keep-temp
 ```
 
-Temporary files are stored under:
+## Outputs
+
+Final selected AIGs are written to:
 
 ```text
-output/.optimizer_tmp/
+output/exNNN.aig
 ```
 
-Use a custom ABC executable:
+Logs are written under:
 
-```bash
-python3 student/flow_optimizer.py --abc /path/to/abc
+```text
+student/logs/
 ```
+
+The main CSV log is:
+
+```text
+student/logs/results.csv
+```
+
+It records the case, labels, flow, ABC command sequence, area, delay, ADP,
+equivalence result, and selected candidate.
 
 ## Notes
 
-- Correctness is checked before a candidate can become the final output.
-- If no equivalent candidate is found, the script reports that case as `FAIL`.
-- On Windows, the provided `student/abc` may not run directly. Use Linux, WSL,
-  MobaXterm remote Linux, or provide a Windows-compatible ABC executable with
-  `--abc`.
-- Before submission, always run:
-
-```bash
-python3 evaluate.py
-```
-
-and confirm that all 100 cases are equivalent.
+- Correctness is mandatory. A candidate is selected only after equivalence
+  checking.
+- The optimizer does not hardcode benchmark-specific final AIGs.
+- On Windows, the provided `student/abc` is a Linux binary. Use Linux, WSL, or a
+  remote Linux environment.
+- Before submission, always run `python3 evaluate.py` and confirm all 100 cases
+  are equivalent.
