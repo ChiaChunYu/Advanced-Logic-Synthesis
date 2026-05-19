@@ -1,15 +1,34 @@
-# Flow Optimizer Usage
+# Hybrid Flow Optimizer Usage
 
-This folder keeps the original baseline optimizer and the improved
-circuit-type-aware optimizer separate.
+This folder keeps the original baseline optimizer and the improved optimizer
+separate.
 
 ## Files
 
-- `optimizer.py`: original baseline script. Keep this unchanged as the simple
+- `optimizer.py`: original baseline script. It is kept unchanged as the simple
   reference implementation.
-- `flow_optimizer.py`: AI/LLM-inspired circuit-type-aware optimizer. It analyzes
-  each truth table, classifies the likely circuit type, searches ABC flows, checks
-  equivalence, and keeps the equivalent AIG with the lowest ADP.
+- `flow_optimizer.py`: hybrid AIG optimizer. It tries multiple initial synthesis
+  strategies, runs ABC post-optimization, checks equivalence, and keeps the
+  equivalent candidate with the lowest ADP.
+
+## Optimization Strategy
+
+`flow_optimizer.py` uses several initial construction methods before ABC
+optimization:
+
+- ABC baseline synthesis from `read_truth -xf`.
+- Support reduction by detecting zero-influence variables during custom
+  synthesis.
+- SOP construction for sparse functions.
+- POS-style construction for dense functions by synthesizing the off-set and
+  inverting the output.
+- Shannon/BDD-style construction with multiple variable orderings.
+- Recursive factoring of SOP cubes when the cover is small enough.
+
+Each initial circuit is written as BLIF or generated through ABC, then optimized
+with several post-flows such as area-oriented, delay-oriented, ADP-balanced, and
+LLM-inspired ABC command sequences.  A candidate is selected only if ABC proves
+it equivalent to the original truth table.
 
 ## Basic Commands
 
@@ -27,6 +46,12 @@ python3 student/flow_optimizer.py --all
 python3 evaluate.py
 ```
 
+Run a smaller inclusive range for testing:
+
+```bash
+python3 student/flow_optimizer.py --range ex200 ex209
+```
+
 If your path contains spaces, run from the project root and pass relative paths:
 
 ```bash
@@ -34,26 +59,12 @@ python3 student/flow_optimizer.py --all --abc student/abc --benchmarks benchmark
 python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
 ```
 
-## Analysis Commands
-
-Print extracted truth-table features:
-
-```bash
-python3 student/flow_optimizer.py --analyze-case ex200
-```
-
-Print the predicted circuit labels and classification reasons:
-
-```bash
-python3 student/flow_optimizer.py --classify-case ex200
-```
-
 ## Useful Options
 
-Limit the number of candidate flows per case:
+Limit the number of initial/flow candidate pairs per case:
 
 ```bash
-python3 student/flow_optimizer.py --all --max-candidates 20
+python3 student/flow_optimizer.py --all --max-candidates 24
 ```
 
 Use a deterministic random seed:
@@ -65,13 +76,7 @@ python3 student/flow_optimizer.py --all --seed 42
 Set a per-case timeout:
 
 ```bash
-python3 student/flow_optimizer.py --all --timeout-per-case 300
-```
-
-Keep temporary AIG files for debugging:
-
-```bash
-python3 student/flow_optimizer.py --case ex200 --keep-temp
+python3 student/flow_optimizer.py --all --timeout-per-case 240
 ```
 
 ## Outputs
@@ -82,27 +87,37 @@ Final selected AIGs are written to:
 output/exNNN.aig
 ```
 
-Logs are written under:
-
-```text
-student/logs/
-```
-
-The main CSV log is:
+The main CSV log is written to:
 
 ```text
 student/logs/results.csv
 ```
 
-It records the case, labels, flow, ABC command sequence, area, delay, ADP,
-equivalence result, and selected candidate.
+The CSV records:
+
+```text
+case, initial_method, flow_name, area, delay, adp, equivalent, selected
+```
+
+## Verified Result
+
+The current generated `output/` directory was checked with:
+
+```bash
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+```
+
+Result:
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 17230005
+```
 
 ## Notes
 
-- Correctness is mandatory. A candidate is selected only after equivalence
-  checking.
-- The optimizer does not hardcode benchmark-specific final AIGs.
+- Correctness is mandatory. Non-equivalent candidates are never selected.
+- The optimizer does not hardcode benchmark-specific final AIG answers.
 - On Windows, the provided `student/abc` is a Linux binary. Use Linux, WSL, or a
   remote Linux environment.
-- Before submission, always run `python3 evaluate.py` and confirm all 100 cases
-  are equivalent.
+- Before submission, always rerun `python3 evaluate.py`.
