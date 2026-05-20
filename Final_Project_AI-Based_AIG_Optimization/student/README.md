@@ -25,6 +25,11 @@ optimization:
 - Shannon/BDD-style construction with multiple variable orderings, including
   original order, high-influence-first, low-influence-first,
   balanced-Shannon-score-first, and deterministic random orders.
+- Boolean fingerprinting and circuit-type classification to infer constants,
+  affine/parity, symmetric/threshold, mux-like, comparator-like, arithmetic-like,
+  and small-support NPN-template functions.
+- Selector-reduction BDD ordering for mux-like functions, based on Shannon
+  cofactor support reduction.
 - Recursive factoring of SOP cubes when the cover is small enough.
 - Deterministic GA-generated ABC post-optimization flows using insert, delete,
   replace, swap, and crossover mutations over ABC commands.
@@ -63,6 +68,12 @@ Analyze a benchmark without generating an AIG:
 python3 student/flow_optimizer.py --analyze-case ex200
 ```
 
+Run precise Boolean fingerprinting/classification without generating an AIG:
+
+```bash
+python3 student/flow_optimizer.py --classify-case ex200
+```
+
 If your path contains spaces, run from the project root and pass relative paths:
 
 ```bash
@@ -75,7 +86,7 @@ python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
 Limit the number of initial/flow candidate pairs per case:
 
 ```bash
-python3 student/flow_optimizer.py --all --max-candidates 40
+python3 student/flow_optimizer.py --all --max-candidates 48
 ```
 
 Use a deterministic random seed:
@@ -147,7 +158,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 17000059
+Total ADP over equivalent cases: 16452612
 ```
 
 ## Notes

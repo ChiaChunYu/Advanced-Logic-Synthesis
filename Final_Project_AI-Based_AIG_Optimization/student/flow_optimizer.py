@@ -20,6 +20,8 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+from boolean_fingerprint import append_classification_csv, fingerprint_case, format_fingerprint
+
 
 PS_RE = re.compile(r"and\s*=\s*(\d+)\s+lev\s*=\s*(\d+)")
 
@@ -501,6 +503,49 @@ def cofactor_compact(bits: tuple[int, ...], split_index: int, var_count: int) ->
     return tuple(low), tuple(high)
 
 
+def truth_bit(index: int, num_inputs: int, var: int) -> int:
+    return (index >> (num_inputs - 1 - var)) & 1
+
+
+def force_truth_bit(index: int, num_inputs: int, var: int, value: int) -> int:
+    bit = 1 << (num_inputs - 1 - var)
+    return (index | bit) if value else (index & ~bit)
+
+
+def cofactor_support(bits: bytearray, num_inputs: int, active: list[int], selector: int, selector_value: int) -> set[int]:
+    support: set[int] = set()
+    for var in active:
+        if var == selector:
+            continue
+        bit = 1 << (num_inputs - 1 - var)
+        depends = False
+        for index in range(len(bits)):
+            if truth_bit(index, num_inputs, selector) != selector_value or (index & bit):
+                continue
+            if bits[index] != bits[index | bit]:
+                depends = True
+                break
+        if depends:
+            support.add(var)
+    return support
+
+
+def selector_reduction_order(table: TruthTable) -> list[int]:
+    """Order variables by how much a Shannon split reduces cofactor support."""
+    active = table.active_vars
+    if len(active) < 3:
+        return active[:]
+    scores = {var: 0.0 for var in active}
+    for bits in table.outputs:
+        full_support = len(active)
+        for selector in active:
+            low = cofactor_support(bits, table.num_inputs, active, selector, 0)
+            high = cofactor_support(bits, table.num_inputs, active, selector, 1)
+            reduction = 2 * (full_support - 1) - len(low) - len(high)
+            scores[selector] += max(0, reduction)
+    return sorted(active, key=lambda var: (scores[var], table.shannon_scores[var], table.influences[var]), reverse=True)
+
+
 def write_bdd_blif(path: Path, model: str, table: TruthTable, order: list[int], node_limit: int) -> None:
     active_to_pos = {var: pos for pos, var in enumerate(table.active_vars)}
     compact_order = [active_to_pos[var] for var in order if var in active_to_pos]
@@ -564,6 +609,7 @@ def make_initial_candidates(case: str, table: TruthTable, tmp: Path, seed: int, 
         orders = [
             ("bdd_original", active),
             ("bdd_high_influence", sorted(active, key=lambda var: table.influences[var], reverse=True)),
+            ("bdd_selector_reduction", selector_reduction_order(table)),
             ("bdd_low_influence", sorted(active, key=lambda var: table.influences[var])),
             ("bdd_balanced_shannon", sorted(active, key=lambda var: table.shannon_scores[var], reverse=True)),
         ]
@@ -880,11 +926,12 @@ def parse_args() -> argparse.Namespace:
     group.add_argument("--all", action="store_true", help="run ex200 through ex299")
     group.add_argument("--range", nargs=2, metavar=("START", "END"), help="run an inclusive case range")
     parser.add_argument("--analyze-case", help="print truth-table features and exit")
+    parser.add_argument("--classify-case", help="print Boolean fingerprint/classification and exit")
     parser.add_argument("--abc", type=Path, default=Path("student/abc"))
     parser.add_argument("--benchmarks", type=Path, default=Path("benchmarks"))
     parser.add_argument("--output", type=Path, default=Path("output"))
     parser.add_argument("--logs", type=Path, default=Path("student/logs"))
-    parser.add_argument("--max-candidates", type=int, default=40)
+    parser.add_argument("--max-candidates", type=int, default=48)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--timeout-per-case", type=int, default=300)
     parser.add_argument("--no-ga", action="store_true", help="disable deterministic GA-generated ABC flows")
@@ -900,6 +947,12 @@ def main() -> int:
         truth = args.benchmarks / f"{args.analyze_case}.truth"
         table = read_truth(truth)
         print(format_case_analysis(args.analyze_case, table))
+        return 0
+    if args.classify_case:
+        truth = args.benchmarks / f"{args.classify_case}.truth"
+        fingerprint = fingerprint_case(truth)
+        append_classification_csv(args.logs / "classification.csv", fingerprint)
+        print(format_fingerprint(fingerprint))
         return 0
 
     if args.case:
