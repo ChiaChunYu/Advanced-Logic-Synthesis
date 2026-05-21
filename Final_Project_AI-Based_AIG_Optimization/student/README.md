@@ -69,6 +69,7 @@ Run the current best reproducible flow:
 ```bash
 python3 student/flow_optimizer.py --all --max-candidates 48 --seed 42
 python3 student/flow_optimizer.py --all --polish-existing --polish-passes 30
+python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 2 --timeout-per-case 180
 python3 evaluate.py
 ```
 
@@ -147,6 +148,12 @@ equivalent and have lower ADP, so it can be run after the main synthesis search:
 python3 student/flow_optimizer.py --all --polish-existing --polish-passes 30
 ```
 
+Run the deterministic all-case hill-climb sweep used for the latest outputs:
+
+```bash
+python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 2 --timeout-per-case 180
+```
+
 ## Outputs
 
 Final selected AIGs are written to:
@@ -191,7 +198,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 11943313
+Total ADP over equivalent cases: 11847618
 ```
 
 ## Notes

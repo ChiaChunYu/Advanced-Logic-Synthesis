@@ -98,6 +98,8 @@ POLISH_FLOWS = [
     PostFlow("polish_resub6", "resub -K 6; balance; rewrite -z; refactor -z; balance"),
     PostFlow("polish_dc2_dch_if6", "dc2; dch; if -K 6; strash; rewrite -z; dc2; balance"),
     PostFlow("polish_dch_if5", "dch; if -K 5; strash; rewrite -z; refactor -z; balance"),
+    PostFlow("polish_dch_if8", "dch; if -K 8; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("polish_dch_if9", "dch; if -K 9; strash; dc2; balance; rewrite -z; refactor -z; balance"),
     PostFlow("polish_rw_rf_loop", "rewrite; rewrite -z; refactor; refactor -z; balance; dc2; balance"),
     PostFlow("polish_resub6_f1", "resub -K 6 -F 1; balance; rewrite -z; refactor -z; balance"),
     PostFlow("polish_resub6_f2", "resub -K 6 -F 2; balance; rewrite -z; refactor -z; balance"),
@@ -106,11 +108,29 @@ POLISH_FLOWS = [
     PostFlow("polish_resub8_dc2", "resub -K 8; dc2; resub -K 6; balance"),
     PostFlow("polish_dc2_resub8_dch", "dc2; resub -K 8; dch; if -K 6; strash; dc2; balance"),
     PostFlow("polish_delay_if10", "dch; if -K 10; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("polish_dch_if11", "dch; if -K 11; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("polish_dch_if12", "dch; if -K 12; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("polish_dch_if13", "dch; if -K 13; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("polish_dch_if14", "dch; if -K 14; strash; dc2; balance; rewrite -z; refactor -z; balance"),
     PostFlow("polish_orchestrate_k12n2f1", "orchestrate -K 12 -N 2 -F 1; balance; rewrite -z; refactor -z; dc2; balance"),
     PostFlow("polish_gia_resyn3rs", "&get; &resyn3rs; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
     PostFlow("polish_dchoice_ifraig", "dchoice; ifraig; dc2; balance; rewrite -z; refactor -z; balance"),
     PostFlow("polish_gia_resyn3_mfs_compress", "&get; &resyn3; &mfs; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
     PostFlow("polish_gia_mfs_compress", "&get; &mfs; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("polish_gia_dc2", "&get; &dc2; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("polish_gia_dch", "&get; &dch; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+]
+
+SWEEP_FLOWS = [
+    PostFlow("sweep_dc2_rw", "dc2; rewrite -z; refactor -z; balance"),
+    PostFlow("sweep_fraig_dc2", "fraig; dc2; rewrite -z; balance"),
+    PostFlow("sweep_resub6_f1", "resub -K 6 -F 1; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("sweep_resub8_n2", "resub -K 8 -N 2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("sweep_resub6_n3", "resub -K 6 -N 3; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("sweep_dch_if8", "dch; if -K 8; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("sweep_dch_if12", "dch; if -K 12; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("sweep_gia_resyn3rs", "&get; &resyn3rs; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("sweep_gia_dc2", "&get; &dc2; &put; balance; rewrite -z; refactor -z; dc2; balance"),
 ]
 
 GA_COMMAND_POOL = [
@@ -1367,6 +1387,88 @@ def polish_existing_case(
     return results, summary
 
 
+def sweep_existing_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+) -> tuple[list[CandidateResult], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        raise RuntimeError(f"missing existing AIG: {source}")
+    tmp = logs / "tmp_sweep" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    results = [
+        CandidateResult(
+            case=case,
+            initial_method="existing_output",
+            flow_name="current",
+            flow_commands="",
+            area=base_area,
+            delay=base_delay,
+            adp=base_adp,
+            equivalent=True,
+            status="OK",
+            aig=source,
+        )
+    ]
+    best = results[0]
+    deadline = time.monotonic() + timeout_per_case
+    for index, flow in enumerate(SWEEP_FLOWS):
+        remaining = max(1, int(deadline - time.monotonic()))
+        if remaining <= 1:
+            break
+        candidate_aig = tmp / f"{case}_{index:02d}_{flow.name}.aig"
+        result = CandidateResult(
+            case=case,
+            initial_method="existing_output_sweep",
+            flow_name=flow.name,
+            flow_commands=flow.commands,
+            aig=candidate_aig,
+        )
+        try:
+            assert best.aig is not None
+            polish_aig(abc, best.aig, flow, candidate_aig, min(remaining, 120), root)
+            result.equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+            if result.equivalent:
+                result.area, result.delay, result.adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                result.status = "OK"
+                if result.adp is not None and result.adp < (best.adp or 10**30):
+                    best = result
+            else:
+                result.status = "NOT_EQUIV"
+        except subprocess.TimeoutExpired:
+            result.status = "TIMEOUT"
+        except Exception:
+            result.status = "ERROR"
+        results.append(result)
+
+    best.selected = True
+    if best.aig is not None and best.aig != source:
+        shutil.copyfile(best.aig, source)
+    assert best.area is not None and best.delay is not None and best.adp is not None
+    summary = CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best.area,
+        best_delay=best.delay,
+        best_adp=best.adp,
+        improvement_ratio=base_adp / best.adp if best.adp else 0.0,
+        selected_method=f"{best.initial_method}/{best.flow_name}",
+    )
+    return results, summary
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Hybrid AIG optimizer")
     group = parser.add_mutually_exclusive_group()
@@ -1387,6 +1489,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--polish-after-synthesis", action="store_true", help="try final polish flows immediately after synthesis search")
     parser.add_argument("--polish-existing", action="store_true", help="polish existing AIGs in --output in place")
     parser.add_argument("--polish-passes", type=int, default=1, help="number of in-place polish passes when --polish-existing is used")
+    parser.add_argument("--sweep-existing", action="store_true", help="run deterministic per-case hill-climb sweep on existing AIGs")
+    parser.add_argument("--sweep-passes", type=int, default=1, help="number of sweep passes when --sweep-existing is used")
     parser.add_argument("--report-stats", action="store_true", help="print report-oriented aggregate statistics")
     return parser.parse_args()
 
@@ -1440,7 +1544,36 @@ def main() -> int:
 
     all_results: list[CandidateResult] = []
     summaries: list[CaseSummary] = []
-    if args.polish_existing:
+    if args.sweep_existing:
+        sweep_passes = max(1, args.sweep_passes)
+        for pass_index in range(sweep_passes):
+            pass_results: list[CandidateResult] = []
+            pass_summaries: list[CaseSummary] = []
+            print(f"[sweep] pass {pass_index + 1}/{sweep_passes}")
+            for case in cases:
+                print(f"[{case}] sweeping existing output")
+                rows, summary = sweep_existing_case(
+                    case,
+                    args.abc,
+                    args.benchmarks,
+                    args.output,
+                    args.logs,
+                    args.timeout_per_case,
+                    root,
+                )
+                pass_results.extend(rows)
+                pass_summaries.append(summary)
+                selected = next(row for row in rows if row.selected)
+                print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+            baseline_total = sum(row.baseline_adp for row in pass_summaries)
+            best_total = sum(row.best_adp for row in pass_summaries)
+            print(f"[sweep] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+            all_results = pass_results
+            summaries = pass_summaries
+            if best_total >= baseline_total:
+                print("[sweep] converged: no pass-level ADP improvement")
+                break
+    elif args.polish_existing:
         polish_passes = max(1, args.polish_passes)
         for pass_index in range(polish_passes):
             pass_results: list[CandidateResult] = []

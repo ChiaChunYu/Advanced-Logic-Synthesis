@@ -25,6 +25,8 @@ It connects each commit to the optimizer milestone it introduced.
 | `59f929f` | 2026-05-21 | `feat: reduce ADP with structural signed multiplier synthesis` | Added exact signed multiplier detection, signed correction logic, and existing-output ADP protection. |
 | `7847bc3` | 2026-05-21 | `docs: record AIG optimization progress` | Added this optimization log and summarized the verified optimization path. |
 | working tree | 2026-05-21 | `feat: add focused GIA MFS polish flows` | Added focused GIA `&mfs`/`&compress3rs` polish flows and applied them to high-ADP cases that improved under equivalence checking. |
+| working tree | 2026-05-22 | `feat: broaden high-ADP polish search` | Tested additional structural detectors and deeper ABC/GIA flows; kept only equivalence-checked `dch; if -K` and GIA `&dc2/&dch` improvements. |
+| working tree | 2026-05-22 | `feat: add reproducible all-case sweep mode` | Added `--sweep-existing` to reproduce the deterministic per-case hill-climb sweep that improves many small and medium cases. |
 
 ## 2026-05-21
 
@@ -161,3 +163,81 @@ Total ADP over equivalent cases: 11943313
 Compared with `11983541`, the focused polish pass reduced total ADP by `40228`.
 Compared with the pre-structural-template result of `13871409`, the current
 total ADP is lower by `1928096`.
+
+## 2026-05-22
+
+### 10% improvement attempt
+
+- Targeted an additional 10% reduction from `11943313`, which would require
+  roughly `1.19M` more ADP improvement.
+- Deep-tested the largest remaining ADP cases, especially `ex299`, `ex227`,
+  `ex207`, `ex226`, `ex297`, `ex206`, and `ex298`.
+- Tried additional exact structural detectors:
+  - quotient/remainder concatenation
+  - flexible output bit-order arithmetic formulas
+  - unary arithmetic patterns
+  - product-derived formulas such as `a*b+a`, `a^2+b^2`, `(a+b)^2`
+  - output splitting and clustering probes
+- Tried deeper ABC/GIA reconstruction flows:
+  - larger single-case hybrid search for `ex299`
+  - GIA `&syn2`, `&syn3`, `&syn4`
+  - GIA `&dc2`, `&dch`
+  - LUT reconstruction with `if -K 4..16`
+  - map/amap reconstruction probes
+- No new safe structural template or deep reconstruction flow produced a 10%
+  improvement.  The largest remaining cases appear to be resistant to the
+  current template library.
+
+### Broader high-ADP polish
+
+- Added additional equivalence-checked polish flows:
+  - `polish_dch_if8`
+  - `polish_dch_if9`
+  - `polish_dch_if11`
+  - `polish_dch_if12`
+  - `polish_dch_if13`
+  - `polish_dch_if14`
+  - `polish_gia_dc2`
+  - `polish_gia_dch`
+- Applied only candidates that were already checked equivalent and had lower
+  ADP, mainly on `ex206`, `ex207`, `ex220`, `ex222`, `ex223`, `ex225`,
+  `ex226`, `ex227`, `ex252`, `ex298`, and `ex299`.
+- Verified by `evaluate.py`.
+
+### Current verified result after broader polish
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11935020
+```
+
+Compared with `11943313`, this broader polish pass reduced total ADP by `8293`.
+Compared with the pre-structural-template result of `13871409`, the current
+total ADP is lower by `1936389`.
+
+### Reproducible all-case sweep
+
+- Moved the temporary all-case hill-climb script into `student/flow_optimizer.py`
+  as a formal CLI mode:
+
+```bash
+python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 2 --timeout-per-case 180
+```
+
+- The sweep starts from the current `output/exNNN.aig`, applies a deterministic
+  set of polish flows, checks equivalence for every candidate, and only replaces
+  the output if ADP is lower.
+- Two sweep passes improved 80 cases in the first pass and 61 cases in the
+  second pass.
+- Verified by `evaluate.py`.
+
+### Current verified result after all-case sweep
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11847618
+```
+
+Compared with `11935020`, the two-pass all-case sweep reduced total ADP by
+`87402`.  Compared with the pre-structural-template result of `13871409`, the
+current total ADP is lower by `2023791`.
