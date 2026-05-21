@@ -99,6 +99,12 @@ POLISH_FLOWS = [
     PostFlow("polish_dc2_dch_if6", "dc2; dch; if -K 6; strash; rewrite -z; dc2; balance"),
     PostFlow("polish_dch_if5", "dch; if -K 5; strash; rewrite -z; refactor -z; balance"),
     PostFlow("polish_rw_rf_loop", "rewrite; rewrite -z; refactor; refactor -z; balance; dc2; balance"),
+    PostFlow("polish_resub6_f1", "resub -K 6 -F 1; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("polish_resub6_f2", "resub -K 6 -F 2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("polish_resub8_n2", "resub -K 8 -N 2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("polish_resub6_n3", "resub -K 6 -N 3; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("polish_resub8_dc2", "resub -K 8; dc2; resub -K 6; balance"),
+    PostFlow("polish_dc2_resub8_dch", "dc2; resub -K 8; dch; if -K 6; strash; dc2; balance"),
 ]
 
 GA_COMMAND_POOL = [
