@@ -34,7 +34,8 @@ optimization:
 - Deterministic GA-generated ABC post-optimization flows using insert, delete,
   replace, swap, and crossover mutations over ABC commands.
 - Iterative in-place polish passes using equivalence-checked cleanup,
-  `dch/if/strash`, `fraig`, `resub -K 6`, and rewrite/refactor loops.
+  `dch/if/strash`, `fraig`, `resub` parameter variants, `orchestrate`,
+  `dchoice/ifraig`, GIA `&resyn3rs`, and rewrite/refactor loops.
 - Pareto frontier tracking for equivalent candidates by area and delay.
 
 Each initial circuit is written as BLIF or generated through ABC, then optimized
@@ -175,7 +176,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 13891894
+Total ADP over equivalent cases: 13871409
 ```
 
 ## Notes
