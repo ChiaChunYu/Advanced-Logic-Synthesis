@@ -28,6 +28,10 @@ optimization:
 - Boolean fingerprinting and circuit-type classification to infer constants,
   affine/parity, symmetric/threshold, mux-like, comparator-like, arithmetic-like,
   and small-support NPN-template functions.
+- Structural arithmetic template synthesis for exact unsigned multipliers and
+  unsigned squarers.  These cases are generated as partial-product networks with
+  Wallace-style column reduction before ABC post-optimization, so the initial
+  circuit is no longer the generic `read_truth -xf` result.
 - Selector-reduction BDD ordering for mux-like functions, based on Shannon
   cofactor support reduction.
 - Recursive factoring of SOP cubes when the cover is small enough.
@@ -64,6 +68,15 @@ Run the current best reproducible flow:
 ```bash
 python3 student/flow_optimizer.py --all --max-candidates 48 --seed 42
 python3 student/flow_optimizer.py --all --polish-existing --polish-passes 30
+python3 evaluate.py
+```
+
+For the largest arithmetic-template gains, the following focused ranges are
+useful during experimentation:
+
+```bash
+python3 student/flow_optimizer.py --range ex255 ex259 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex273 ex274 --max-candidates 80 --no-ga
 python3 evaluate.py
 ```
 
@@ -176,7 +189,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 13871409
+Total ADP over equivalent cases: 12402618
 ```
 
 ## Notes

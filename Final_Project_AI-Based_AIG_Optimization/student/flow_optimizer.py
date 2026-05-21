@@ -411,6 +411,35 @@ class BlifBuilder:
         self.lines.append("-1 1")
         return out
 
+    def emit_xor(self, left: str, right: str) -> str:
+        if left == self.const0:
+            return right
+        if right == self.const0:
+            return left
+        if left == self.const1:
+            return self.emit_not(right)
+        if right == self.const1:
+            return self.emit_not(left)
+        if left == right:
+            return self.const0
+        out = self.new_name()
+        self.lines.append(f".names {left} {right} {out}")
+        self.lines.append("01 1")
+        self.lines.append("10 1")
+        return out
+
+    def emit_half_adder(self, left: str, right: str) -> tuple[str, str]:
+        return self.emit_xor(left, right), self.emit_and(left, right)
+
+    def emit_full_adder(self, left: str, middle: str, right: str) -> tuple[str, str]:
+        partial = self.emit_xor(left, middle)
+        summation = self.emit_xor(partial, right)
+        carry = self.emit_or(
+            self.emit_or(self.emit_and(left, middle), self.emit_and(left, right)),
+            self.emit_and(middle, right),
+        )
+        return summation, carry
+
     def emit_mux(self, sel_var: int, low: str, high: str) -> str:
         if low == high:
             return low
@@ -603,6 +632,138 @@ def write_bdd_blif(path: Path, model: str, table: TruthTable, order: list[int], 
     builder.finish(signals, path)
 
 
+def detect_unsigned_square(table: TruthTable) -> list[int] | None:
+    if table.num_outputs != 2 * table.num_inputs:
+        return None
+
+    def output_value(index: int) -> int:
+        value = 0
+        for output_index, bits in enumerate(table.outputs):
+            value |= bits[index] << output_index
+        return value
+
+    for order in (list(reversed(range(table.num_inputs))), list(range(table.num_inputs))):
+        matches = True
+        for index in range(table.num_minterms):
+            value = 0
+            for bit_index, var in enumerate(order):
+                value |= truth_bit(index, table.num_inputs, var) << bit_index
+            if output_value(index) != value * value:
+                matches = False
+                break
+        if matches:
+            return order
+    return None
+
+
+def detect_unsigned_multiplier(table: TruthTable) -> tuple[list[int], list[int]] | None:
+    if table.num_inputs % 2 != 0 or table.num_outputs != table.num_inputs:
+        return None
+
+    half = table.num_inputs // 2
+    group_candidates = [
+        (list(range(half)), list(range(half, table.num_inputs))),
+        (list(range(0, table.num_inputs, 2)), list(range(1, table.num_inputs, 2))),
+        (list(range(1, table.num_inputs, 2)), list(range(0, table.num_inputs, 2))),
+    ]
+
+    def output_value(index: int) -> int:
+        value = 0
+        for output_index, bits in enumerate(table.outputs):
+            value |= bits[index] << output_index
+        return value
+
+    def input_value(index: int, order: list[int]) -> int:
+        value = 0
+        for bit_index, var in enumerate(order):
+            value |= truth_bit(index, table.num_inputs, var) << bit_index
+        return value
+
+    mask = (1 << table.num_outputs) - 1
+    for left_group, right_group in group_candidates:
+        for left_order in (left_group, list(reversed(left_group))):
+            for right_order in (right_group, list(reversed(right_group))):
+                for a_order, b_order in ((left_order, right_order), (right_order, left_order)):
+                    matches = True
+                    for index in range(table.num_minterms):
+                        product = input_value(index, a_order) * input_value(index, b_order)
+                        if output_value(index) != (product & mask):
+                            matches = False
+                            break
+                    if matches:
+                        return a_order, b_order
+    return None
+
+
+def reduce_weighted_columns(builder: BlifBuilder, columns: list[list[str]]) -> list[list[str]]:
+    while any(len(column) > 2 for column in columns):
+        next_columns: list[list[str]] = [[] for _ in range(len(columns) + 1)]
+        for column_index, column_terms in enumerate(columns):
+            terms = column_terms[:]
+            while len(terms) >= 3:
+                a = terms.pop()
+                b = terms.pop()
+                c = terms.pop()
+                summation, carry = builder.emit_full_adder(a, b, c)
+                next_columns[column_index].append(summation)
+                next_columns[column_index + 1].append(carry)
+            next_columns[column_index].extend(terms)
+        columns = next_columns
+    return columns
+
+
+def emit_column_outputs(builder: BlifBuilder, columns: list[list[str]], output_count: int) -> list[str]:
+    outputs: list[str] = []
+    carry = builder.const0
+    for column in range(output_count):
+        terms = columns[column][:]
+        if carry != builder.const0:
+            terms.append(carry)
+        if not terms:
+            outputs.append(builder.const0)
+            carry = builder.const0
+        elif len(terms) == 1:
+            outputs.append(terms[0])
+            carry = builder.const0
+        elif len(terms) == 2:
+            outputs.append(builder.emit_xor(terms[0], terms[1]))
+            carry = builder.emit_and(terms[0], terms[1])
+        else:
+            summation, carry = builder.emit_full_adder(terms[0], terms[1], terms[2])
+            outputs.append(summation)
+    return outputs
+
+
+def write_unsigned_square_blif(path: Path, model: str, table: TruthTable, lsb_order: list[int]) -> None:
+    builder = BlifBuilder(table, model)
+    width = len(lsb_order)
+    columns: list[list[str]] = [[] for _ in range(table.num_outputs + width + 2)]
+
+    for left in range(width):
+        left_signal = f"x{lsb_order[left]}"
+        for right in range(left, width):
+            if left == right:
+                columns[left + right].append(left_signal)
+            else:
+                product = builder.emit_and(left_signal, f"x{lsb_order[right]}")
+                columns[left + right + 1].append(product)
+
+    columns = reduce_weighted_columns(builder, columns)
+    outputs = emit_column_outputs(builder, columns, table.num_outputs)
+    builder.finish(outputs, path)
+
+
+def write_unsigned_multiplier_blif(path: Path, model: str, table: TruthTable, a_order: list[int], b_order: list[int]) -> None:
+    builder = BlifBuilder(table, model)
+    columns: list[list[str]] = [[] for _ in range(table.num_outputs + len(a_order) + len(b_order) + 2)]
+    for left, a_var in enumerate(a_order):
+        for right, b_var in enumerate(b_order):
+            columns[left + right].append(builder.emit_and(f"x{a_var}", f"x{b_var}"))
+    columns = reduce_weighted_columns(builder, columns)
+    outputs = emit_column_outputs(builder, columns, table.num_outputs)
+    builder.finish(outputs, path)
+
+
 def make_initial_candidates(case: str, table: TruthTable, tmp: Path, seed: int, use_bdd: bool) -> list[InitialCandidate]:
     tmp.mkdir(parents=True, exist_ok=True)
     candidates = [InitialCandidate("abc_truth", "truth", None)]
@@ -623,6 +784,19 @@ def make_initial_candidates(case: str, table: TruthTable, tmp: Path, seed: int, 
         blif = tmp / f"{case}_factored_sop.blif"
         write_factored_sop_blif(blif, f"{case}_factored_sop", table, sop_covers)
         candidates.append(InitialCandidate("recursive_factored_sop", "blif", blif))
+
+    square_order = detect_unsigned_square(table)
+    if square_order is not None:
+        blif = tmp / f"{case}_unsigned_square.blif"
+        write_unsigned_square_blif(blif, f"{case}_unsigned_square", table, square_order)
+        candidates.append(InitialCandidate("template_unsigned_square", "blif", blif))
+
+    multiplier_orders = detect_unsigned_multiplier(table)
+    if multiplier_orders is not None:
+        a_order, b_order = multiplier_orders
+        blif = tmp / f"{case}_unsigned_multiplier.blif"
+        write_unsigned_multiplier_blif(blif, f"{case}_unsigned_multiplier", table, a_order, b_order)
+        candidates.append(InitialCandidate("template_unsigned_multiplier", "blif", blif))
 
     active = table.active_vars
     if use_bdd and len(active) <= 18:
@@ -1104,6 +1278,21 @@ def main() -> int:
         fingerprint = fingerprint_case(truth)
         append_classification_csv(args.logs / "classification.csv", fingerprint)
         print(format_fingerprint(fingerprint))
+        table = read_truth(truth)
+        square_order = detect_unsigned_square(table)
+        multiplier_orders = detect_unsigned_multiplier(table)
+        if square_order is not None:
+            order_text = ", ".join(f"x{var}" for var in square_order)
+            print("\nStructural arithmetic detector:")
+            print(f"- unsigned_square: confidence=1.000, lsb_to_msb_order={order_text}")
+            print("- recommended_strategy: template_unsigned_square + ABC post-optimization")
+        if multiplier_orders is not None:
+            a_order, b_order = multiplier_orders
+            a_text = ", ".join(f"x{var}" for var in a_order)
+            b_text = ", ".join(f"x{var}" for var in b_order)
+            print("\nStructural arithmetic detector:")
+            print(f"- unsigned_multiplier: confidence=1.000, a_lsb_to_msb={a_text}, b_lsb_to_msb={b_text}")
+            print("- recommended_strategy: template_unsigned_multiplier + ABC post-optimization")
         return 0
 
     if args.case:
