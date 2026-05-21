@@ -91,6 +91,12 @@ POST_FLOWS = [
     PostFlow("llm_mix_2", "dc2; drw; drf; rewrite; dc2; balance"),
 ]
 
+POLISH_FLOWS = [
+    PostFlow("polish_cleanup_deep", "balance; rewrite -z; refactor -z; dc2; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("polish_dch_if6", "dch; if -K 6; strash; dc2; balance"),
+    PostFlow("polish_fraig_dc2", "fraig; dc2; rewrite -z; balance"),
+]
+
 GA_COMMAND_POOL = [
     "balance",
     "rewrite",
@@ -705,6 +711,19 @@ def synthesize(
     run_abc(abc, command, timeout, root)
 
 
+def polish_aig(
+    abc: Path,
+    source_aig: Path,
+    flow: PostFlow,
+    out_aig: Path,
+    timeout: int,
+    root: Path,
+) -> None:
+    out_aig.parent.mkdir(parents=True, exist_ok=True)
+    command = f"read {abc_path(source_aig, root)}; {flow.commands}; write_aiger -s {abc_path(out_aig, root)}"
+    run_abc(abc, command, timeout, root)
+
+
 def is_equivalent(abc: Path, truth: Path, aig: Path, timeout: int, root: Path) -> bool:
     output = run_abc(abc, f"read_truth -xf {abc_path(truth, root)}; st; &get; &cec -t {abc_path(aig, root)}", timeout, root)
     return "Networks are equivalent" in output
@@ -732,6 +751,7 @@ def optimize_case(
     root: Path,
     use_ga: bool,
     use_bdd: bool,
+    use_polish: bool,
 ) -> tuple[list[CandidateResult], CaseSummary]:
     truth = benchmarks / f"{case}.truth"
     table = read_truth(truth)
@@ -790,6 +810,39 @@ def optimize_case(
 
     if baseline is None:
         baseline = best
+
+    if use_polish:
+        polish_source = best
+        assert polish_source.aig is not None
+        for polish_index, polish_flow in enumerate(POLISH_FLOWS):
+            remaining = max(1, int(deadline - time.monotonic()))
+            if remaining <= 1:
+                break
+            candidate_aig = tmp / f"{case}_polish_{polish_index:02d}_{polish_flow.name}.aig"
+            result = CandidateResult(
+                case,
+                f"post_polish_from_{polish_source.initial_method}",
+                polish_flow.name,
+                polish_flow.commands,
+                aig=candidate_aig,
+            )
+            try:
+                polish_aig(abc, polish_source.aig, polish_flow, candidate_aig, min(remaining, 180), root)
+                result.equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 120), root)
+                if result.equivalent:
+                    result.area, result.delay, result.adp = measure_adp(abc, candidate_aig, min(remaining, 120), root)
+                    result.status = "OK"
+                    if result.adp is not None and result.adp < (best.adp or 10**30):
+                        best = result
+                        polish_source = result
+                else:
+                    result.status = "NOT_EQUIV"
+            except subprocess.TimeoutExpired:
+                result.status = "TIMEOUT"
+            except Exception:
+                result.status = "ERROR"
+            results.append(result)
+
     best.selected = True
     output.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(best.aig, output / f"{case}.aig")
@@ -919,6 +972,87 @@ def print_report_stats(results: list[CandidateResult], summaries: list[CaseSumma
         print(f"  {method}: {count}")
 
 
+def polish_existing_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+) -> tuple[list[CandidateResult], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        raise RuntimeError(f"missing existing AIG: {source}")
+    tmp = logs / "tmp_polish" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    results = [
+        CandidateResult(
+            case=case,
+            initial_method="existing_output",
+            flow_name="current",
+            flow_commands="",
+            area=base_area,
+            delay=base_delay,
+            adp=base_adp,
+            equivalent=True,
+            status="OK",
+            aig=source,
+        )
+    ]
+    best = results[0]
+    deadline = time.monotonic() + timeout_per_case
+    for index, flow in enumerate(POLISH_FLOWS):
+        remaining = max(1, int(deadline - time.monotonic()))
+        if remaining <= 1:
+            break
+        candidate_aig = tmp / f"{case}_{index:02d}_{flow.name}.aig"
+        result = CandidateResult(
+            case=case,
+            initial_method="existing_output_polish",
+            flow_name=flow.name,
+            flow_commands=flow.commands,
+            aig=candidate_aig,
+        )
+        try:
+            polish_aig(abc, source, flow, candidate_aig, min(remaining, 180), root)
+            result.equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 120), root)
+            if result.equivalent:
+                result.area, result.delay, result.adp = measure_adp(abc, candidate_aig, min(remaining, 120), root)
+                result.status = "OK"
+                if result.adp is not None and result.adp < (best.adp or 10**30):
+                    best = result
+            else:
+                result.status = "NOT_EQUIV"
+        except subprocess.TimeoutExpired:
+            result.status = "TIMEOUT"
+        except Exception:
+            result.status = "ERROR"
+        results.append(result)
+
+    best.selected = True
+    if best.aig is not None and best.aig != source:
+        shutil.copyfile(best.aig, source)
+    assert best.area is not None and best.delay is not None and best.adp is not None
+    summary = CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best.area,
+        best_delay=best.delay,
+        best_adp=best.adp,
+        improvement_ratio=base_adp / best.adp if best.adp else 0.0,
+        selected_method=f"{best.initial_method}/{best.flow_name}",
+    )
+    return results, summary
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Hybrid AIG optimizer")
     group = parser.add_mutually_exclusive_group()
@@ -936,6 +1070,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout-per-case", type=int, default=300)
     parser.add_argument("--no-ga", action="store_true", help="disable deterministic GA-generated ABC flows")
     parser.add_argument("--no-bdd", action="store_true", help="disable custom BDD/Shannon initial synthesis")
+    parser.add_argument("--polish-after-synthesis", action="store_true", help="try final polish flows immediately after synthesis search")
+    parser.add_argument("--polish-existing", action="store_true", help="polish existing AIGs in --output in place")
+    parser.add_argument("--polish-passes", type=int, default=1, help="number of in-place polish passes when --polish-existing is used")
     parser.add_argument("--report-stats", action="store_true", help="print report-oriented aggregate statistics")
     return parser.parse_args()
 
@@ -966,25 +1103,56 @@ def main() -> int:
 
     all_results: list[CandidateResult] = []
     summaries: list[CaseSummary] = []
-    for case in cases:
-        print(f"[{case}] optimizing")
-        rows, summary = optimize_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            args.max_candidates,
-            args.seed,
-            args.timeout_per_case,
-            root,
-            not args.no_ga,
-            not args.no_bdd,
-        )
-        all_results.extend(rows)
-        summaries.append(summary)
-        selected = next(row for row in rows if row.selected)
-        print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+    if args.polish_existing:
+        polish_passes = max(1, args.polish_passes)
+        for pass_index in range(polish_passes):
+            pass_results: list[CandidateResult] = []
+            pass_summaries: list[CaseSummary] = []
+            print(f"[polish] pass {pass_index + 1}/{polish_passes}")
+            for case in cases:
+                print(f"[{case}] polishing existing output")
+                rows, summary = polish_existing_case(
+                    case,
+                    args.abc,
+                    args.benchmarks,
+                    args.output,
+                    args.logs,
+                    args.timeout_per_case,
+                    root,
+                )
+                pass_results.extend(rows)
+                pass_summaries.append(summary)
+                selected = next(row for row in rows if row.selected)
+                print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+            baseline_total = sum(row.baseline_adp for row in pass_summaries)
+            best_total = sum(row.best_adp for row in pass_summaries)
+            print(f"[polish] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+            all_results = pass_results
+            summaries = pass_summaries
+            if best_total >= baseline_total:
+                print("[polish] converged: no pass-level ADP improvement")
+                break
+    else:
+        for case in cases:
+            print(f"[{case}] optimizing")
+            rows, summary = optimize_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.max_candidates,
+                args.seed,
+                args.timeout_per_case,
+                root,
+                not args.no_ga,
+                not args.no_bdd,
+                args.polish_after_synthesis,
+            )
+            all_results.extend(rows)
+            summaries.append(summary)
+            selected = next(row for row in rows if row.selected)
+            print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     write_results_csv(args.logs / "results.csv", all_results)
     write_summary_csv(args.logs / "summary.csv", summaries)

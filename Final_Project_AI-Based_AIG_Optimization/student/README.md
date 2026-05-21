@@ -56,6 +56,14 @@ python3 student/flow_optimizer.py --all
 python3 evaluate.py
 ```
 
+Run the current best reproducible flow:
+
+```bash
+python3 student/flow_optimizer.py --all --max-candidates 48 --seed 42
+python3 student/flow_optimizer.py --all --polish-existing --polish-passes 6
+python3 evaluate.py
+```
+
 Run a smaller inclusive range for testing:
 
 ```bash
@@ -114,6 +122,13 @@ Print report-oriented aggregate statistics:
 python3 student/flow_optimizer.py --all --report-stats
 ```
 
+Polish already generated AIGs in place.  This only accepts candidates that are
+equivalent and have lower ADP, so it can be run after the main synthesis search:
+
+```bash
+python3 student/flow_optimizer.py --all --polish-existing --polish-passes 6
+```
+
 ## Outputs
 
 Final selected AIGs are written to:
@@ -158,7 +173,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 16452612
+Total ADP over equivalent cases: 14652389
 ```
 
 ## Notes
