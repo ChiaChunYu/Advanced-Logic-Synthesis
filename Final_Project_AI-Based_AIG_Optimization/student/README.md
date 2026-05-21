@@ -191,7 +191,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 11983541
+Total ADP over equivalent cases: 11943313
 ```
 
 ## Notes

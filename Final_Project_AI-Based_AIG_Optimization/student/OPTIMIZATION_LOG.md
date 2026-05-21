@@ -24,6 +24,7 @@ It connects each commit to the optimizer milestone it introduced.
 | `5ed4d0a` | 2026-05-21 | `feat: lower ADP with structural multiplier and squarer synthesis` | Added exact unsigned multiplier and unsigned square detection plus structural BLIF generation. |
 | `59f929f` | 2026-05-21 | `feat: reduce ADP with structural signed multiplier synthesis` | Added exact signed multiplier detection, signed correction logic, and existing-output ADP protection. |
 | `7847bc3` | 2026-05-21 | `docs: record AIG optimization progress` | Added this optimization log and summarized the verified optimization path. |
+| working tree | 2026-05-21 | `feat: add focused GIA MFS polish flows` | Added focused GIA `&mfs`/`&compress3rs` polish flows and applied them to high-ADP cases that improved under equivalence checking. |
 
 ## 2026-05-21
 
@@ -127,7 +128,7 @@ Equivalent cases: 100/100
 Total ADP over equivalent cases: 12030819
 ```
 
-### Current verified result
+### Verified result after full structural arithmetic sweep
 
 ```text
 Equivalent cases: 100/100
@@ -136,3 +137,27 @@ Total ADP over equivalent cases: 11983541
 
 Compared with the previous verified result of `13871409`, the structural
 arithmetic templates reduce total ADP by `1887868`.
+
+### Focused GIA/MFS polish
+
+- Probed additional high-ADP cases after the structural arithmetic templates.
+- Exact divider and additional unary/product-formula detectors were tested, but
+  no new safe structural template beat the current outputs.
+- Added two equivalence-checked polish flows:
+  - `polish_gia_resyn3_mfs_compress`
+  - `polish_gia_mfs_compress`
+- Applied focused polish to high-ADP cases where the probe showed improvement,
+  including `ex207`, `ex220`, `ex222`, `ex223`, `ex225`, `ex226`, `ex227`,
+  `ex252`, `ex297`, and `ex298`.
+- Verified by `evaluate.py`.
+
+### Current verified result after focused polish
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11943313
+```
+
+Compared with `11983541`, the focused polish pass reduced total ADP by `40228`.
+Compared with the pre-structural-template result of `13871409`, the current
+total ADP is lower by `1928096`.
