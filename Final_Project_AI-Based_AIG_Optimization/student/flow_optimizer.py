@@ -695,6 +695,46 @@ def detect_unsigned_multiplier(table: TruthTable) -> tuple[list[int], list[int]]
     return None
 
 
+def detect_signed_multiplier(table: TruthTable) -> tuple[list[int], list[int]] | None:
+    if table.num_inputs % 2 != 0 or table.num_outputs != table.num_inputs:
+        return None
+
+    half = table.num_inputs // 2
+    group_candidates = [
+        (list(range(half)), list(range(half, table.num_inputs))),
+        (list(range(0, table.num_inputs, 2)), list(range(1, table.num_inputs, 2))),
+        (list(range(1, table.num_inputs, 2)), list(range(0, table.num_inputs, 2))),
+    ]
+
+    def output_value(index: int) -> int:
+        value = 0
+        for output_index, bits in enumerate(table.outputs):
+            value |= bits[index] << output_index
+        return value
+
+    def signed_input_value(index: int, order: list[int]) -> int:
+        value = 0
+        for bit_index, var in enumerate(order):
+            value |= truth_bit(index, table.num_inputs, var) << bit_index
+        sign_bit = 1 << (len(order) - 1)
+        return value - (1 << len(order)) if value & sign_bit else value
+
+    mask = (1 << table.num_outputs) - 1
+    for left_group, right_group in group_candidates:
+        for left_order in (left_group, list(reversed(left_group))):
+            for right_order in (right_group, list(reversed(right_group))):
+                for a_order, b_order in ((left_order, right_order), (right_order, left_order)):
+                    matches = True
+                    for index in range(table.num_minterms):
+                        product = signed_input_value(index, a_order) * signed_input_value(index, b_order)
+                        if output_value(index) != (product & mask):
+                            matches = False
+                            break
+                    if matches:
+                        return a_order, b_order
+    return None
+
+
 def reduce_weighted_columns(builder: BlifBuilder, columns: list[list[str]]) -> list[list[str]]:
     while any(len(column) > 2 for column in columns):
         next_columns: list[list[str]] = [[] for _ in range(len(columns) + 1)]
@@ -734,6 +774,51 @@ def emit_column_outputs(builder: BlifBuilder, columns: list[list[str]], output_c
     return outputs
 
 
+def emit_unsigned_product_bits(
+    builder: BlifBuilder,
+    a_order: list[int],
+    b_order: list[int],
+    output_count: int,
+) -> list[str]:
+    columns: list[list[str]] = [[] for _ in range(output_count + len(a_order) + len(b_order) + 2)]
+    for left, a_var in enumerate(a_order):
+        for right, b_var in enumerate(b_order):
+            columns[left + right].append(builder.emit_and(f"x{a_var}", f"x{b_var}"))
+    columns = reduce_weighted_columns(builder, columns)
+    return emit_column_outputs(builder, columns, output_count)
+
+
+def emit_vector_add(builder: BlifBuilder, left: list[str], right: list[str], carry_in: str) -> list[str]:
+    outputs: list[str] = []
+    carry = carry_in
+    for left_bit, right_bit in zip(left, right):
+        if carry == builder.const0:
+            summation, carry = builder.emit_half_adder(left_bit, right_bit)
+        else:
+            summation, carry = builder.emit_full_adder(left_bit, right_bit, carry)
+        outputs.append(summation)
+    return outputs
+
+
+def emit_conditional_subtract_shifted(
+    builder: BlifBuilder,
+    minuend: list[str],
+    subtrahend: list[str],
+    shift: int,
+    control: str,
+) -> list[str]:
+    # Add conditional two's-complement of (subtrahend << shift).  This avoids
+    # building a separate signed multiplier while keeping the netlist structural.
+    add_bits: list[str] = []
+    for bit_index in range(len(minuend)):
+        source_index = bit_index - shift
+        if 0 <= source_index < len(subtrahend):
+            add_bits.append(builder.emit_and(control, builder.emit_not(subtrahend[source_index])))
+        else:
+            add_bits.append(control)
+    return emit_vector_add(builder, minuend, add_bits, control)
+
+
 def write_unsigned_square_blif(path: Path, model: str, table: TruthTable, lsb_order: list[int]) -> None:
     builder = BlifBuilder(table, model)
     width = len(lsb_order)
@@ -755,12 +840,18 @@ def write_unsigned_square_blif(path: Path, model: str, table: TruthTable, lsb_or
 
 def write_unsigned_multiplier_blif(path: Path, model: str, table: TruthTable, a_order: list[int], b_order: list[int]) -> None:
     builder = BlifBuilder(table, model)
-    columns: list[list[str]] = [[] for _ in range(table.num_outputs + len(a_order) + len(b_order) + 2)]
-    for left, a_var in enumerate(a_order):
-        for right, b_var in enumerate(b_order):
-            columns[left + right].append(builder.emit_and(f"x{a_var}", f"x{b_var}"))
-    columns = reduce_weighted_columns(builder, columns)
-    outputs = emit_column_outputs(builder, columns, table.num_outputs)
+    outputs = emit_unsigned_product_bits(builder, a_order, b_order, table.num_outputs)
+    builder.finish(outputs, path)
+
+
+def write_signed_multiplier_blif(path: Path, model: str, table: TruthTable, a_order: list[int], b_order: list[int]) -> None:
+    builder = BlifBuilder(table, model)
+    width = len(a_order)
+    outputs = emit_unsigned_product_bits(builder, a_order, b_order, table.num_outputs)
+    a_bits = [f"x{var}" for var in a_order]
+    b_bits = [f"x{var}" for var in b_order]
+    outputs = emit_conditional_subtract_shifted(builder, outputs, b_bits, width, a_bits[-1])
+    outputs = emit_conditional_subtract_shifted(builder, outputs, a_bits, width, b_bits[-1])
     builder.finish(outputs, path)
 
 
@@ -797,6 +888,13 @@ def make_initial_candidates(case: str, table: TruthTable, tmp: Path, seed: int, 
         blif = tmp / f"{case}_unsigned_multiplier.blif"
         write_unsigned_multiplier_blif(blif, f"{case}_unsigned_multiplier", table, a_order, b_order)
         candidates.append(InitialCandidate("template_unsigned_multiplier", "blif", blif))
+
+    signed_multiplier_orders = detect_signed_multiplier(table)
+    if signed_multiplier_orders is not None:
+        a_order, b_order = signed_multiplier_orders
+        blif = tmp / f"{case}_signed_multiplier.blif"
+        write_signed_multiplier_blif(blif, f"{case}_signed_multiplier", table, a_order, b_order)
+        candidates.append(InitialCandidate("template_signed_multiplier", "blif", blif))
 
     active = table.active_vars
     if use_bdd and len(active) <= 18:
@@ -999,6 +1097,30 @@ def optimize_case(
     if baseline is None:
         baseline = best
 
+    existing_aig = output / f"{case}.aig"
+    if existing_aig.is_file():
+        existing = CandidateResult(
+            case,
+            "existing_output",
+            "current",
+            "",
+            equivalent=False,
+            status="ERROR",
+            aig=existing_aig,
+        )
+        try:
+            existing.equivalent = is_equivalent(abc, truth, existing_aig, 120, root)
+            if existing.equivalent:
+                existing.area, existing.delay, existing.adp = measure_adp(abc, existing_aig, 120, root)
+                existing.status = "OK"
+                if existing.adp is not None and existing.adp < (best.adp or 10**30):
+                    best = existing
+            else:
+                existing.status = "NOT_EQUIV"
+        except Exception:
+            existing.status = "ERROR"
+        results.append(existing)
+
     if use_polish:
         polish_source = best
         assert polish_source.aig is not None
@@ -1033,7 +1155,9 @@ def optimize_case(
 
     best.selected = True
     output.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(best.aig, output / f"{case}.aig")
+    final_aig = output / f"{case}.aig"
+    if best.aig is not None and best.aig.resolve() != final_aig.resolve():
+        shutil.copyfile(best.aig, final_aig)
     assert baseline.area is not None and baseline.delay is not None and baseline.adp is not None
     assert best.area is not None and best.delay is not None and best.adp is not None
     summary = CaseSummary(
@@ -1281,6 +1405,7 @@ def main() -> int:
         table = read_truth(truth)
         square_order = detect_unsigned_square(table)
         multiplier_orders = detect_unsigned_multiplier(table)
+        signed_multiplier_orders = detect_signed_multiplier(table)
         if square_order is not None:
             order_text = ", ".join(f"x{var}" for var in square_order)
             print("\nStructural arithmetic detector:")
@@ -1293,6 +1418,13 @@ def main() -> int:
             print("\nStructural arithmetic detector:")
             print(f"- unsigned_multiplier: confidence=1.000, a_lsb_to_msb={a_text}, b_lsb_to_msb={b_text}")
             print("- recommended_strategy: template_unsigned_multiplier + ABC post-optimization")
+        if signed_multiplier_orders is not None:
+            a_order, b_order = signed_multiplier_orders
+            a_text = ", ".join(f"x{var}" for var in a_order)
+            b_text = ", ".join(f"x{var}" for var in b_order)
+            print("\nStructural arithmetic detector:")
+            print(f"- signed_multiplier: confidence=1.000, a_lsb_to_msb={a_text}, b_lsb_to_msb={b_text}")
+            print("- recommended_strategy: template_signed_multiplier + ABC post-optimization")
         return 0
 
     if args.case:
