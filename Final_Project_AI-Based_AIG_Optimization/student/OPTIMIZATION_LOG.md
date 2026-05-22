@@ -227,17 +227,55 @@ python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 2 --time
 - The sweep starts from the current `output/exNNN.aig`, applies a deterministic
   set of polish flows, checks equivalence for every candidate, and only replaces
   the output if ADP is lower.
-- Two sweep passes improved 80 cases in the first pass and 61 cases in the
-  second pass.
+- Three full sweep passes improved many small and medium cases, not only the
+  largest high-ADP benchmarks.  The first two passes improved 80 cases and 61
+  cases respectively; the third pass continued lowering additional cases.
+- A longer fourth full sweep was tested but did not finish cleanly within the
+  working window, so the accepted reproducible version replaces it with a
+  focused deterministic range sweep on `ex200` through `ex207`.
+- The focused front-range sweep is also exposed through the normal CLI:
+
+```bash
+python3 student/flow_optimizer.py --range ex200 ex207 --sweep-existing --sweep-passes 3 --timeout-per-case 180
+```
+
 - Verified by `evaluate.py`.
 
-### Current verified result after all-case sweep
+### Current verified result after all-case and focused sweeps
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 11847618
+Total ADP over equivalent cases: 11821986
 ```
 
-Compared with `11935020`, the two-pass all-case sweep reduced total ADP by
-`87402`.  Compared with the pre-structural-template result of `13871409`, the
-current total ADP is lower by `2023791`.
+Compared with `11935020`, the reproducible sweep sequence reduced total ADP by
+`113034`.  Compared with the pre-structural-template result of `13871409`, the
+current total ADP is lower by `2049423`.
+
+### Current reproducible command sequence
+
+The current output can be reproduced from the project root with one command:
+
+```bash
+python3 student/flow_optimizer.py --reproduce-best
+```
+
+This command is a wrapper around the full deterministic sequence:
+
+```bash
+python3 student/flow_optimizer.py --all --max-candidates 48 --seed 42
+python3 student/flow_optimizer.py --range ex255 ex259 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex260 ex264 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex270 ex274 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --all --polish-existing --polish-passes 30
+python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 3 --timeout-per-case 180
+python3 student/flow_optimizer.py --range ex200 ex207 --sweep-existing --sweep-passes 3 --timeout-per-case 180
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+```
+
+- `--reproduce-best` uses fixed internal search settings for the known best
+  flow: `48` main candidates, `80` focused arithmetic candidates, seed `42`,
+  `30` polish passes, and `3` sweep passes.
+- The command finishes by verifying all 100 outputs through ABC and printing
+  the total ADP, so the result can be reproduced without manually copying the
+  multi-line command sequence.

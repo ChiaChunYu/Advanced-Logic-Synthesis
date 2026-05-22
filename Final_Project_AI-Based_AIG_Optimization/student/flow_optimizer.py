@@ -152,6 +152,15 @@ TOP_FLOW_NAMES = [
     "drw_drf",
 ]
 
+ALL_CASES = [f"ex{i}" for i in range(200, 300)]
+REPRODUCE_MAIN_MAX_CANDIDATES = 48
+REPRODUCE_FOCUSED_MAX_CANDIDATES = 80
+REPRODUCE_SEED = 42
+REPRODUCE_ARITHMETIC_RANGES = [("ex255", "ex259"), ("ex260", "ex264"), ("ex270", "ex274")]
+REPRODUCE_POLISH_PASSES = 30
+REPRODUCE_SWEEP_PASSES = 3
+REPRODUCE_FRONT_RANGE = ("ex200", "ex207")
+
 
 def split_commands(commands: str) -> list[str]:
     return [part.strip() for part in commands.split(";") if part.strip()]
@@ -1306,6 +1315,193 @@ def print_report_stats(results: list[CandidateResult], summaries: list[CaseSumma
         print(f"  {method}: {count}")
 
 
+def inclusive_cases(start_case: str, end_case: str) -> list[str]:
+    start = int(start_case.removeprefix("ex"))
+    end = int(end_case.removeprefix("ex"))
+    return [f"ex{i}" for i in range(start, end + 1)]
+
+
+def verify_final_outputs(
+    cases: list[str],
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    root: Path,
+) -> tuple[list[CandidateResult], list[CaseSummary]]:
+    results: list[CandidateResult] = []
+    summaries: list[CaseSummary] = []
+    for case in cases:
+        truth = benchmarks / f"{case}.truth"
+        aig = output / f"{case}.aig"
+        if not aig.is_file():
+            raise RuntimeError(f"missing output AIG: {aig}")
+        equivalent = is_equivalent(abc, truth, aig, 120, root)
+        if not equivalent:
+            raise RuntimeError(f"final output is not equivalent: {case}")
+        area, delay, adp = measure_adp(abc, aig, 120, root)
+        result = CandidateResult(
+            case=case,
+            initial_method="final_output",
+            flow_name="reproduce_best_verify",
+            flow_commands="",
+            area=area,
+            delay=delay,
+            adp=adp,
+            equivalent=True,
+            selected=True,
+            status="OK",
+            aig=aig,
+        )
+        results.append(result)
+        summaries.append(
+            CaseSummary(
+                case=case,
+                baseline_area=area,
+                baseline_delay=delay,
+                baseline_adp=adp,
+                best_area=area,
+                best_delay=delay,
+                best_adp=adp,
+                improvement_ratio=1.0,
+                selected_method="final_output/reproduce_best_verify",
+            )
+        )
+    return results, summaries
+
+
+def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[CandidateResult], list[CaseSummary]]:
+    step_results: list[CandidateResult] = []
+    print("[reproduce] stage 1/6: full hybrid synthesis search")
+    for case in ALL_CASES:
+        print(f"[{case}] optimizing")
+        rows, summary = optimize_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_MAIN_MAX_CANDIDATES,
+            REPRODUCE_SEED,
+            args.timeout_per_case,
+            root,
+            True,
+            True,
+            False,
+        )
+        step_results.extend(rows)
+        selected = next(row for row in rows if row.selected)
+        print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+
+    for range_index, (start_case, end_case) in enumerate(REPRODUCE_ARITHMETIC_RANGES, start=2):
+        print(f"[reproduce] stage {range_index}/6: focused arithmetic range {start_case}-{end_case}")
+        for case in inclusive_cases(start_case, end_case):
+            print(f"[{case}] optimizing focused range")
+            rows, summary = optimize_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                REPRODUCE_FOCUSED_MAX_CANDIDATES,
+                REPRODUCE_SEED,
+                args.timeout_per_case,
+                root,
+                False,
+                True,
+                False,
+            )
+            step_results.extend(rows)
+            selected = next(row for row in rows if row.selected)
+            print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+
+    print("[reproduce] stage 5/6: equivalence-checked polish passes")
+    for pass_index in range(REPRODUCE_POLISH_PASSES):
+        pass_summaries: list[CaseSummary] = []
+        print(f"[polish] pass {pass_index + 1}/{REPRODUCE_POLISH_PASSES}")
+        for case in ALL_CASES:
+            print(f"[{case}] polishing existing output")
+            rows, summary = polish_existing_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+            )
+            step_results.extend(rows)
+            pass_summaries.append(summary)
+            selected = next(row for row in rows if row.selected)
+            print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+        baseline_total = sum(row.baseline_adp for row in pass_summaries)
+        best_total = sum(row.best_adp for row in pass_summaries)
+        print(f"[polish] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        if best_total >= baseline_total:
+            print("[polish] converged: no pass-level ADP improvement")
+            break
+
+    print("[reproduce] stage 6/6: deterministic sweep passes")
+    for pass_index in range(REPRODUCE_SWEEP_PASSES):
+        pass_summaries = []
+        print(f"[sweep] all cases pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
+        for case in ALL_CASES:
+            print(f"[{case}] sweeping existing output")
+            rows, summary = sweep_existing_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+            )
+            step_results.extend(rows)
+            pass_summaries.append(summary)
+            selected = next(row for row in rows if row.selected)
+            print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+        baseline_total = sum(row.baseline_adp for row in pass_summaries)
+        best_total = sum(row.best_adp for row in pass_summaries)
+        print(f"[sweep] all cases pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        if best_total >= baseline_total:
+            print("[sweep] converged: no pass-level ADP improvement")
+            break
+
+    front_cases = inclusive_cases(*REPRODUCE_FRONT_RANGE)
+    for pass_index in range(REPRODUCE_SWEEP_PASSES):
+        pass_summaries = []
+        print(f"[sweep] focused {REPRODUCE_FRONT_RANGE[0]}-{REPRODUCE_FRONT_RANGE[1]} pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
+        for case in front_cases:
+            print(f"[{case}] sweeping existing output")
+            rows, summary = sweep_existing_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+            )
+            step_results.extend(rows)
+            pass_summaries.append(summary)
+            selected = next(row for row in rows if row.selected)
+            print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+        baseline_total = sum(row.baseline_adp for row in pass_summaries)
+        best_total = sum(row.best_adp for row in pass_summaries)
+        print(f"[sweep] focused pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        if best_total >= baseline_total:
+            print("[sweep] focused range converged: no pass-level ADP improvement")
+            break
+
+    write_results_csv(args.logs / "reproduce_candidates.csv", step_results)
+    final_results, final_summaries = verify_final_outputs(ALL_CASES, args.abc, args.benchmarks, args.output, root)
+    equivalent_count = sum(1 for row in final_results if row.equivalent)
+    total_adp = sum(row.adp or 0 for row in final_results if row.equivalent)
+    print("------------------------------------------------------")
+    print(f"Equivalent cases: {equivalent_count}/{len(final_results)}")
+    print(f"Total ADP over equivalent cases: {total_adp}")
+    return final_results, final_summaries
+
+
 def polish_existing_case(
     case: str,
     abc: Path,
@@ -1475,6 +1671,7 @@ def parse_args() -> argparse.Namespace:
     group.add_argument("--case", help="run one benchmark, for example ex200")
     group.add_argument("--all", action="store_true", help="run ex200 through ex299")
     group.add_argument("--range", nargs=2, metavar=("START", "END"), help="run an inclusive case range")
+    group.add_argument("--reproduce-best", action="store_true", help="run the full deterministic best-result workflow")
     parser.add_argument("--analyze-case", help="print truth-table features and exit")
     parser.add_argument("--classify-case", help="print Boolean fingerprint/classification and exit")
     parser.add_argument("--abc", type=Path, default=Path("student/abc"))
@@ -1531,6 +1728,14 @@ def main() -> int:
             print("\nStructural arithmetic detector:")
             print(f"- signed_multiplier: confidence=1.000, a_lsb_to_msb={a_text}, b_lsb_to_msb={b_text}")
             print("- recommended_strategy: template_signed_multiplier + ABC post-optimization")
+        return 0
+
+    if args.reproduce_best:
+        all_results, summaries = run_reproduce_best(args, root)
+        write_results_csv(args.logs / "results.csv", all_results)
+        write_summary_csv(args.logs / "summary.csv", summaries)
+        if args.report_stats:
+            print_report_stats(all_results, summaries)
         return 0
 
     if args.case:

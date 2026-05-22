@@ -67,14 +67,26 @@ python3 evaluate.py
 Run the current best reproducible flow:
 
 ```bash
+python3 student/flow_optimizer.py --reproduce-best
+```
+
+This single command expands to the deterministic sequence below, then verifies
+all 100 final outputs and rewrites `student/logs/results.csv` plus
+`student/logs/summary.csv`:
+
+```bash
 python3 student/flow_optimizer.py --all --max-candidates 48 --seed 42
+python3 student/flow_optimizer.py --range ex255 ex259 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex260 ex264 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex270 ex274 --max-candidates 80 --no-ga
 python3 student/flow_optimizer.py --all --polish-existing --polish-passes 30
-python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 2 --timeout-per-case 180
-python3 evaluate.py
+python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 3 --timeout-per-case 180
+python3 student/flow_optimizer.py --range ex200 ex207 --sweep-existing --sweep-passes 3 --timeout-per-case 180
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
 ```
 
 For the largest arithmetic-template gains, the following focused ranges are
-useful during experimentation:
+included in the current best flow and are also useful during experimentation:
 
 ```bash
 python3 student/flow_optimizer.py --range ex255 ex259 --max-candidates 80 --no-ga
@@ -141,6 +153,12 @@ Print report-oriented aggregate statistics:
 python3 student/flow_optimizer.py --all --report-stats
 ```
 
+Reproduce the current best result with one command:
+
+```bash
+python3 student/flow_optimizer.py --reproduce-best
+```
+
 Polish already generated AIGs in place.  This only accepts candidates that are
 equivalent and have lower ADP, so it can be run after the main synthesis search:
 
@@ -151,7 +169,8 @@ python3 student/flow_optimizer.py --all --polish-existing --polish-passes 30
 Run the deterministic all-case hill-climb sweep used for the latest outputs:
 
 ```bash
-python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 2 --timeout-per-case 180
+python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 3 --timeout-per-case 180
+python3 student/flow_optimizer.py --range ex200 ex207 --sweep-existing --sweep-passes 3 --timeout-per-case 180
 ```
 
 ## Outputs
@@ -198,13 +217,15 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 11847618
+Total ADP over equivalent cases: 11821986
 ```
 
 ## Notes
 
 - Correctness is mandatory. Non-equivalent candidates are never selected.
 - The optimizer does not hardcode benchmark-specific final AIG answers.
+- The current best result is reproducible by running the command sequence in
+  "Run the current best reproducible flow" from the project root.
 - On Windows, the provided `student/abc` is a Linux binary. Use Linux, WSL, or a
   remote Linux environment.
 - Before submission, always rerun `python3 evaluate.py`.
