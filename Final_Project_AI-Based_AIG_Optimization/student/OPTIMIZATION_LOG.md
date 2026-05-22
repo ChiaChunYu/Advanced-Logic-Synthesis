@@ -27,6 +27,11 @@ It connects each commit to the optimizer milestone it introduced.
 | working tree | 2026-05-21 | `feat: add focused GIA MFS polish flows` | Added focused GIA `&mfs`/`&compress3rs` polish flows and applied them to high-ADP cases that improved under equivalence checking. |
 | working tree | 2026-05-22 | `feat: broaden high-ADP polish search` | Tested additional structural detectors and deeper ABC/GIA flows; kept only equivalence-checked `dch; if -K` and GIA `&dc2/&dch` improvements. |
 | working tree | 2026-05-22 | `feat: add reproducible all-case sweep mode` | Added `--sweep-existing` to reproduce the deterministic per-case hill-climb sweep that improves many small and medium cases. |
+| working tree | 2026-05-22 | `feat: add structural divider quotient synthesis` | Added exact unsigned divider-quotient detection and restoring-divider BLIF generation for architecture-level optimization. |
+| working tree | 2026-05-22 | `feat: add integer square-root architecture detection` | Added exact unsigned square-root detection and a restoring square-root structural candidate; kept only the cases that improved after equivalence checking. |
+| working tree | 2026-05-22 | `feat: add diagnosis-driven optimization reports` | Added ablation, bottleneck diagnosis, template validation, rescue-worst, complement-first, BDD sift, and history-guided GA entry points. |
+| working tree | 2026-05-22 | `feat: add focused ex252 rescue stage` | Used diagnosis-guided rescue to find a better ex252 BDD/Shannon candidate and added the reproducible stage to `--reproduce-best`. |
+| working tree | 2026-05-22 | `feat: add fair per-case coverage scheduler` | Added case coverage reporting plus complete-all, round-robin, and score-aware schedulers so small cases are not starved by high-ADP rescue. |
 
 ## 2026-05-21
 
@@ -266,7 +271,10 @@ This command is a wrapper around the full deterministic sequence:
 python3 student/flow_optimizer.py --all --max-candidates 48 --seed 42
 python3 student/flow_optimizer.py --range ex255 ex259 --max-candidates 80 --no-ga
 python3 student/flow_optimizer.py --range ex260 ex264 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex265 ex269 --max-candidates 80 --no-ga
 python3 student/flow_optimizer.py --range ex270 ex274 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex275 ex279 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --case ex252 --max-candidates 120 --timeout-per-case 240 --seed 99 --try-complement --history-guided-ga --polish-after-synthesis
 python3 student/flow_optimizer.py --all --polish-existing --polish-passes 30
 python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 3 --timeout-per-case 180
 python3 student/flow_optimizer.py --range ex200 ex207 --sweep-existing --sweep-passes 3 --timeout-per-case 180
@@ -279,3 +287,189 @@ python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
 - The command finishes by verifying all 100 outputs through ABC and printing
   the total ADP, so the result can be reproduced without manually copying the
   multi-line command sequence.
+
+### Structural unsigned divider quotient synthesis
+
+- Added an exact truth-table detector for unsigned quotient functions:
+  `quotient = dividend / divisor`, with divisor zero mapped to all-one output.
+- Added a restoring-divider BLIF generator using structural compare, subtract,
+  mux, and quotient-bit extraction logic.
+- This is an architecture-level initial synthesis method rather than another
+  ABC sweep command.  The template is only considered when the full truth table
+  exactly matches the quotient function, then ABC still checks equivalence
+  before any output is selected.
+- Detected range: `ex265` through `ex269`.
+- Existing-output ADP protection kept the smaller current results for
+  `ex265` through `ex268`, while `ex269` improved with
+  `template_unsigned_divider_quotient/llm_mix_2`.
+
+### Current verified result after divider quotient template
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11820308
+```
+
+Compared with `11821986`, the divider quotient template reduced total ADP by
+`1678`.  Compared with the pre-structural-template result of `13871409`, the
+current total ADP is lower by `2051101`.
+
+### Structural unsigned square-root detection
+
+- Added an exact detector for `floor(sqrt(input_word))` functions.
+- Detected range: `ex275` through `ex279`.
+- Added a restoring square-root BLIF generator, but the structural candidate did
+  not beat the current outputs on the larger square-root cases.
+- The focused range search still found a better equivalent BDD-based result for
+  `ex275`, reducing that case ADP from `336` to `294`.
+- Larger architecture probes were also tested and rejected because they made the
+  high-ADP cases worse:
+  - per-output cone decomposition for `ex297`, `ex298`, and `ex299`
+  - output-polarity phase-normalized synthesis
+  - sign-bit factoring for floating-like `sin/tan`-style cases
+
+### Current verified result after square-root range
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11820266
+```
+
+Compared with `11820308`, the square-root range reduced total ADP by `42`.
+Compared with the pre-structural-template result of `13871409`, the current
+total ADP is lower by `2051143`.
+
+### Diagnosis-driven optimizer instrumentation
+
+- Added ablation reporting:
+
+```bash
+python3 student/flow_optimizer.py --ablation-report
+```
+
+  This reads candidate history from `student/logs/reproduce_candidates.csv` or
+  `student/logs/results.csv`, then reports wins by initial method, wins by ABC
+  flow, average ADP per method, never-selected methods, near-miss BDD/Shannon
+  cases, arithmetic-template wins, and template failures.
+
+- Added bottleneck diagnosis:
+
+```bash
+python3 student/flow_optimizer.py --diagnose-results
+```
+
+  This measures the current `output/` AIGs and classifies each case as
+  `area_bottleneck`, `delay_bottleneck`, `balanced_bottleneck`,
+  `template_mismatch`, `bdd_ordering_sensitive`, or `already_good`.
+
+- Added focused rescue mode:
+
+```bash
+python3 student/flow_optimizer.py --rescue-worst 5 --max-candidates 80 --timeout-per-case 300 --seed 42
+```
+
+  This ranks current cases by ADP, reruns focused candidate search only on the
+  top `K`, and keeps the old output unless an equivalent lower-ADP candidate is
+  found.
+
+- Added optional rescue aids:
+  - `--try-complement`: tries complement-first ABC truth synthesis and then
+    wraps outputs back to the original phase.
+  - `--bdd-sift`: tries adjacent-swap local search for BDD variable order during
+    rescue.
+  - `--history-guided-ga`: seeds GA flows from historical equivalent winners
+    instead of starting only from random mutations.
+
+- Added exact template validation:
+
+```bash
+python3 student/flow_optimizer.py --validate-templates
+```
+
+  This records matched unsigned multiplier, signed multiplier, square, divider
+  quotient/remainder, integer square-root, comparator, and adder-like formulas
+  under common operand mappings.
+
+- Smoke tests completed:
+  - `python3 -m py_compile student/flow_optimizer.py student/boolean_fingerprint.py student/optimizer.py`
+  - `python3 student/flow_optimizer.py --validate-templates`
+  - `python3 student/flow_optimizer.py --diagnose-results`
+  - `python3 student/flow_optimizer.py --ablation-report`
+  - isolated `ex200` run with `--try-complement --history-guided-ga`, followed
+    by `python3 evaluate.py --case ex200`, passed equivalence.
+
+### Focused ex252 rescue
+
+- Used bottleneck diagnosis to move beyond the top-five worst cases after
+  `ex299`, `ex227`, `ex207`, `ex226`, and `ex206` did not improve under rescue.
+- Ran focused rescue on medium high-ADP cases with complement-first synthesis,
+  history-guided GA, and post-synthesis polish enabled.
+- The only accepted improvement was `ex252`, where a BDD/Shannon candidate with
+  seed `99` and `llm_mix_2` reduced ADP:
+
+```text
+ex252: 347650 -> 320658
+```
+
+- The improvement is reproducible from scratch with:
+
+```bash
+python3 student/flow_optimizer.py --case ex252 --max-candidates 120 --timeout-per-case 240 --seed 99 --try-complement --history-guided-ga --polish-after-synthesis
+```
+
+### Current verified result after focused rescue
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11793274
+```
+
+Compared with `11820266`, the focused rescue stage reduced total ADP by
+`26992`.  Compared with the pre-structural-template result of `13871409`, the
+current total ADP is lower by `2078135`.
+
+### Fair per-case coverage scheduling
+
+- Added a case coverage report:
+
+```bash
+python3 student/flow_optimizer.py --case-coverage-report
+```
+
+  It records candidates tried, equivalent candidates, selected updates, method
+  diversity, flow-family diversity, whether BDD/SOP/complement were tried, and
+  baseline/current ADP ratio for every benchmark.
+
+- Added under-covered case detection using the contract:
+  - fewer than `50` candidates
+  - fewer than `10` equivalent candidates
+  - fewer than `4` initial methods
+  - fewer than `5` flow families
+  - no complement synthesis
+  - no BDD/Shannon synthesis
+  - improvement ratio below `1.02`
+
+- Added fair scheduling modes:
+
+```bash
+python3 student/flow_optimizer.py --complete-all-cases --min-candidates 50 --seed 0
+python3 student/flow_optimizer.py --round-robin-optimize --rounds 5 --candidates-per-round 10 --seed 0
+python3 student/flow_optimizer.py --score-aware-optimize --total-budget 5000 --seed 0
+```
+
+- These modes append candidate history to `student/logs/coverage_candidates.csv`
+  so later coverage reports can see progress across multiple passes.
+- Smoke tests completed on both a small case and the largest remaining case:
+  - `ex200` kept the current equivalent output at ADP `63252`
+  - `ex299` kept the current equivalent output at ADP `2740464`
+
+### Current verified result after fair coverage scheduler smoke
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11793022
+```
+
+Compared with the focused-rescue result of `11793274`, the current checked
+outputs are lower by `252`.  Compared with the pre-structural-template result of
+`13871409`, the current total ADP is lower by `2078387`.

@@ -29,8 +29,9 @@ optimization:
   affine/parity, symmetric/threshold, mux-like, comparator-like, arithmetic-like,
   and small-support NPN-template functions.
 - Structural arithmetic template synthesis for exact unsigned multipliers,
-  signed two's-complement multipliers, and unsigned squarers.  These cases are
-  generated as partial-product networks with Wallace-style column reduction
+  signed two's-complement multipliers, unsigned squarers, unsigned divider
+  quotient functions, and unsigned integer square-root functions.  These cases
+  are generated from arithmetic structures
   before ABC post-optimization, so the initial circuit is no longer the generic
   `read_truth -xf` result.
 - Selector-reduction BDD ordering for mux-like functions, based on Shannon
@@ -78,7 +79,10 @@ all 100 final outputs and rewrites `student/logs/results.csv` plus
 python3 student/flow_optimizer.py --all --max-candidates 48 --seed 42
 python3 student/flow_optimizer.py --range ex255 ex259 --max-candidates 80 --no-ga
 python3 student/flow_optimizer.py --range ex260 ex264 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex265 ex269 --max-candidates 80 --no-ga
 python3 student/flow_optimizer.py --range ex270 ex274 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex275 ex279 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --case ex252 --max-candidates 120 --timeout-per-case 240 --seed 99 --try-complement --history-guided-ga --polish-after-synthesis
 python3 student/flow_optimizer.py --all --polish-existing --polish-passes 30
 python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 3 --timeout-per-case 180
 python3 student/flow_optimizer.py --range ex200 ex207 --sweep-existing --sweep-passes 3 --timeout-per-case 180
@@ -91,7 +95,9 @@ included in the current best flow and are also useful during experimentation:
 ```bash
 python3 student/flow_optimizer.py --range ex255 ex259 --max-candidates 80 --no-ga
 python3 student/flow_optimizer.py --range ex260 ex264 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex265 ex269 --max-candidates 80 --no-ga
 python3 student/flow_optimizer.py --range ex270 ex274 --max-candidates 80 --no-ga
+python3 student/flow_optimizer.py --range ex275 ex279 --max-candidates 80 --no-ga
 python3 evaluate.py
 ```
 
@@ -159,6 +165,32 @@ Reproduce the current best result with one command:
 python3 student/flow_optimizer.py --reproduce-best
 ```
 
+Generate diagnosis reports for deciding the next optimization direction:
+
+```bash
+python3 student/flow_optimizer.py --ablation-report
+python3 student/flow_optimizer.py --diagnose-results
+python3 student/flow_optimizer.py --validate-templates
+python3 student/flow_optimizer.py --case-coverage-report
+```
+
+Run focused rescue on the current worst ADP cases.  This keeps the existing
+output unless a candidate is equivalent and has lower ADP:
+
+```bash
+python3 student/flow_optimizer.py --rescue-worst 5 --max-candidates 80 --timeout-per-case 300 --seed 42
+python3 student/flow_optimizer.py --rescue-worst 3 --max-candidates 80 --try-complement --history-guided-ga --bdd-sift
+```
+
+Give all under-covered cases a fair candidate package instead of ranking only by
+ADP:
+
+```bash
+python3 student/flow_optimizer.py --complete-all-cases --min-candidates 50 --seed 0
+python3 student/flow_optimizer.py --round-robin-optimize --rounds 5 --candidates-per-round 10 --seed 0
+python3 student/flow_optimizer.py --score-aware-optimize --total-budget 5000 --seed 0
+```
+
 Polish already generated AIGs in place.  This only accepts candidates that are
 equivalent and have lower ADP, so it can be run after the main synthesis search:
 
@@ -205,6 +237,23 @@ It records:
 case, baseline_area, baseline_delay, baseline_adp, best_area, best_delay, best_adp, improvement_ratio, selected_method
 ```
 
+Diagnosis and validation reports are written to:
+
+```text
+student/logs/ablation_report.txt
+student/logs/ablation_summary.csv
+student/logs/bottleneck_diagnosis.csv
+student/logs/case_coverage.csv
+student/logs/case_coverage_report.txt
+student/logs/coverage_candidates.csv
+student/logs/rescue_worst_summary.csv
+student/logs/bdd_sifting.csv
+student/logs/template_validation.csv
+student/logs/round_robin_summary.csv
+student/logs/score_aware_schedule.csv
+student/logs/score_aware_summary.csv
+```
+
 ## Verified Result
 
 The current generated `output/` directory was checked with:
@@ -217,7 +266,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 11821986
+Total ADP over equivalent cases: 11793022
 ```
 
 ## Notes
