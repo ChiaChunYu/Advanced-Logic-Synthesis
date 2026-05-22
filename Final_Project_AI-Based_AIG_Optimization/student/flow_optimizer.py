@@ -169,6 +169,7 @@ REPRODUCE_RESCUE_MAX_CANDIDATES = 120
 REPRODUCE_RESCUE_SEED = 99
 REPRODUCE_POLISH_PASSES = 30
 REPRODUCE_SWEEP_PASSES = 3
+REPRODUCE_FINAL_SWEEP_PASSES = 3
 REPRODUCE_FRONT_RANGE = ("ex200", "ex207")
 
 
@@ -2405,7 +2406,7 @@ def verify_final_outputs(
 
 def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[CandidateResult], list[CaseSummary]]:
     step_results: list[CandidateResult] = []
-    print("[reproduce] stage 1/6: full hybrid synthesis search")
+    print("[reproduce] stage 1/10: full hybrid synthesis search")
     for case in ALL_CASES:
         print(f"[{case}] optimizing")
         rows, summary = optimize_case(
@@ -2427,7 +2428,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     for range_index, (start_case, end_case) in enumerate(REPRODUCE_ARITHMETIC_RANGES, start=2):
-        print(f"[reproduce] stage {range_index}/9: focused arithmetic range {start_case}-{end_case}")
+        print(f"[reproduce] stage {range_index}/10: focused arithmetic range {start_case}-{end_case}")
         for case in inclusive_cases(start_case, end_case):
             print(f"[{case}] optimizing focused range")
             rows, summary = optimize_case(
@@ -2449,7 +2450,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 5/9: focused divider quotient range "
+        f"[reproduce] stage 5/10: focused divider quotient range "
         f"{REPRODUCE_DIVIDER_RANGE[0]}-{REPRODUCE_DIVIDER_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_DIVIDER_RANGE):
@@ -2473,7 +2474,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 6/9: focused square-root range "
+        f"[reproduce] stage 6/10: focused square-root range "
         f"{REPRODUCE_SQRT_RANGE[0]}-{REPRODUCE_SQRT_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_SQRT_RANGE):
@@ -2496,7 +2497,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 7/9: focused diagnosis-driven rescue cases")
+    print("[reproduce] stage 7/10: focused diagnosis-driven rescue cases")
     for case in REPRODUCE_RESCUE_CASES:
         print(f"[{case}] optimizing focused rescue case")
         rows, summary = optimize_case(
@@ -2519,7 +2520,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 8/9: equivalence-checked polish passes")
+    print("[reproduce] stage 8/10: equivalence-checked polish passes")
     for pass_index in range(REPRODUCE_POLISH_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[polish] pass {pass_index + 1}/{REPRODUCE_POLISH_PASSES}")
@@ -2533,6 +2534,8 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 args.logs,
                 args.timeout_per_case,
                 root,
+                args.try_mockturtle,
+                args.mockturtle_bin,
             )
             step_results.extend(rows)
             pass_summaries.append(summary)
@@ -2545,7 +2548,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[polish] converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 9/9: deterministic sweep passes")
+    print("[reproduce] stage 9/10: deterministic sweep passes")
     for pass_index in range(REPRODUCE_SWEEP_PASSES):
         pass_summaries = []
         print(f"[sweep] all cases pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
@@ -2559,6 +2562,8 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 args.logs,
                 args.timeout_per_case,
                 root,
+                args.try_mockturtle,
+                args.mockturtle_bin,
             )
             step_results.extend(rows)
             pass_summaries.append(summary)
@@ -2595,6 +2600,34 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[sweep] focused pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
             print("[sweep] focused range converged: no pass-level ADP improvement")
+            break
+
+    print("[reproduce] stage 10/10: final all-case convergence sweeps")
+    for pass_index in range(REPRODUCE_FINAL_SWEEP_PASSES):
+        pass_summaries = []
+        print(f"[sweep] final all cases pass {pass_index + 1}/{REPRODUCE_FINAL_SWEEP_PASSES}")
+        for case in ALL_CASES:
+            print(f"[{case}] sweeping existing output")
+            rows, summary = sweep_existing_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                args.try_mockturtle,
+                args.mockturtle_bin,
+            )
+            step_results.extend(rows)
+            pass_summaries.append(summary)
+            selected = next(row for row in rows if row.selected)
+            print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+        baseline_total = sum(row.baseline_adp for row in pass_summaries)
+        best_total = sum(row.best_adp for row in pass_summaries)
+        print(f"[sweep] final pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        if best_total >= baseline_total:
+            print("[sweep] final all-case sweep converged: no pass-level ADP improvement")
             break
 
     write_results_csv(args.logs / "reproduce_candidates.csv", step_results)

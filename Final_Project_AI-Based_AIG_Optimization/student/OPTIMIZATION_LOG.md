@@ -545,3 +545,44 @@ Total ADP over equivalent cases: 11723552
 ```
 
 Compared with the previous `11723588`, the checked outputs are lower by `36`.
+
+### Multi-pass all-case convergence sweep
+
+- Re-ran the integrated existing-output sweep over all `ex200`-`ex299` cases for
+  several passes.  Each pass revisits every benchmark, so the search is not
+  limited to the largest ADP cases.
+- Added the same final all-case convergence sweep stage to `--reproduce-best`
+  so this extra search is part of the reproducible workflow.
+- `--try-mockturtle` was included in the sweep command.  Because
+  `student/mockturtle_opt` is not built yet in this WSL environment, the
+  optimizer printed a warning and safely skipped mockturtle candidates.  The
+  ABC/GIA sweep flows still found additional equivalent improvements.
+- Key accepted improvements included:
+
+```text
+ex205: 81228 -> 80934
+ex206: 658030 -> 656167
+ex207: 775248 -> 772824
+ex223: 238671 -> 236371
+ex225: 249297 -> 248078
+ex227: 864202 -> 860844
+ex242: 51813 -> 50920
+ex250: 75020 -> 73854
+ex252: 264875 -> 243648
+ex291: 96102 -> 95437
+ex292: 120340 -> 113297
+ex294: 211302 -> 200500
+ex298: 574442 -> 569338
+ex299: 2740344 -> 2733744
+```
+
+### Current verified result after multi-pass convergence
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11653116
+```
+
+Compared with `11723552`, the convergence sweep reduced total ADP by `70436`.
+Compared with the pre-structural-template result of `13871409`, the current
+total ADP is lower by `2218293`.
