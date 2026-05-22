@@ -4,7 +4,7 @@
 //   bash student/build_mockturtle_opt.sh
 //
 // Usage:
-//   student/mockturtle_opt input.aig output.aig [mode]
+//   student/mockturtle input.aig output.aig [mode]
 //
 // The Python optimizer still performs ABC equivalence checking and ADP
 // measurement before any generated output can be selected.
@@ -13,12 +13,8 @@
 
 #include <mockturtle/algorithms/aig_balancing.hpp>
 #include <mockturtle/algorithms/cleanup.hpp>
-#include <mockturtle/algorithms/cut_rewriting.hpp>
-#include <mockturtle/algorithms/explorer.hpp>
 #include <mockturtle/algorithms/node_resynthesis/sop_factoring.hpp>
-#include <mockturtle/algorithms/node_resynthesis/xag_npn.hpp>
 #include <mockturtle/algorithms/refactoring.hpp>
-#include <mockturtle/algorithms/resubstitution.hpp>
 #include <mockturtle/io/aiger_reader.hpp>
 #include <mockturtle/io/write_aiger.hpp>
 #include <mockturtle/networks/aig.hpp>
@@ -44,23 +40,6 @@ void run_refactor( mockturtle::aig_network& aig )
   aig = mockturtle::cleanup_dangling( aig );
 }
 
-void run_cut_rewrite( mockturtle::aig_network& aig )
-{
-  mockturtle::xag_npn_resynthesis<mockturtle::aig_network> resyn;
-  mockturtle::cut_rewriting_params ps;
-  ps.cut_enumeration_ps.cut_size = 4;
-  aig = mockturtle::cut_rewriting( aig, resyn, ps );
-  aig = mockturtle::cleanup_dangling( aig );
-}
-
-void run_resub( mockturtle::aig_network& aig, uint32_t max_pis, uint32_t max_inserts )
-{
-  mockturtle::resubstitution_params ps;
-  ps.max_pis = max_pis;
-  ps.max_inserts = max_inserts;
-  mockturtle::aig_resubstitution( aig, ps );
-  aig = mockturtle::cleanup_dangling( aig );
-}
 } // namespace
 
 int main( int argc, char** argv )
@@ -92,23 +71,9 @@ int main( int argc, char** argv )
     {
       run_refactor( aig );
     }
-    else if ( mode == "rewrite" )
-    {
-      run_cut_rewrite( aig );
-    }
-    else if ( mode == "resub" )
-    {
-      run_resub( aig, 8, 2 );
-    }
-    else if ( mode == "compress2rs" )
-    {
-      mockturtle::compress2rs_aig( aig );
-      aig = mockturtle::cleanup_dangling( aig );
-    }
     else if ( mode == "light" )
     {
       run_balance( aig );
-      run_cut_rewrite( aig );
       run_refactor( aig );
       run_balance( aig );
     }

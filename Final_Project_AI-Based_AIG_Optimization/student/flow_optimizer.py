@@ -135,7 +135,7 @@ SWEEP_FLOWS = [
     PostFlow("sweep_gia_dc2", "&get; &dc2; &put; balance; rewrite -z; refactor -z; dc2; balance"),
 ]
 
-MOCKTURTLE_MODES = ["light", "compress2rs", "rewrite", "refactor", "resub", "balance"]
+MOCKTURTLE_MODES = ["light", "refactor", "balance"]
 MOCKTURTLE_POST_FLOW = PostFlow("mockturtle_abc_cleanup", "dc2; rewrite -z; refactor -z; balance")
 
 GA_COMMAND_POOL = [
@@ -2862,7 +2862,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sweep-existing", action="store_true", help="run deterministic per-case hill-climb sweep on existing AIGs")
     parser.add_argument("--sweep-passes", type=int, default=1, help="number of sweep passes when --sweep-existing is used")
     parser.add_argument("--try-mockturtle", action="store_true", help="try optional mockturtle AIG rewrites during existing-output sweep")
-    parser.add_argument("--mockturtle-bin", type=Path, default=Path("student/mockturtle_opt"), help="path to optional mockturtle optimizer binary")
+    parser.add_argument("--mockturtle-bin", type=Path, default=Path("student/mockturtle"), help="path to optional mockturtle optimizer binary")
     parser.add_argument("--report-stats", action="store_true", help="print report-oriented aggregate statistics")
     parser.add_argument("--ablation-report", action="store_true", help="summarize candidate history and method wins")
     parser.add_argument("--diagnose-results", action="store_true", help="classify current outputs by likely optimization bottleneck")

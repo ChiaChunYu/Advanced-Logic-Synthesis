@@ -3,8 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$ROOT_DIR/student/mockturtle_opt.cpp"
-OUT="$ROOT_DIR/student/mockturtle_opt"
-MOCKTURTLE="$ROOT_DIR/student/mockturtle"
+OUT="$ROOT_DIR/student/mockturtle"
+MOCKTURTLE="$ROOT_DIR/student/mockturtle_src"
 
 if [[ ! -d "$MOCKTURTLE/include" || ! -d "$MOCKTURTLE/lib" ]]; then
   echo "mockturtle checkout not found at $MOCKTURTLE" >&2
@@ -23,7 +23,7 @@ if [[ -z "$CXX_BIN" ]]; then
   fi
 fi
 
-"$CXX_BIN" -std=c++17 -O2 -DNDEBUG \
+"$CXX_BIN" -std=c++17 -O2 -DNDEBUG -DFMT_HEADER_ONLY \
   -I"$MOCKTURTLE/include" \
   -I"$MOCKTURTLE/lib/kitty" \
   -I"$MOCKTURTLE/lib/lorina" \
@@ -32,6 +32,9 @@ fi
   -I"$MOCKTURTLE/lib/percy" \
   -I"$MOCKTURTLE/lib/bill" \
   -I"$MOCKTURTLE/lib/rang" \
+  -I"$MOCKTURTLE/lib/nauty" \
+  -I"$MOCKTURTLE/lib/abcsat" \
+  -I"$MOCKTURTLE/lib/abcesop" \
   "$SRC" -o "$OUT"
 
 echo "Built $OUT"

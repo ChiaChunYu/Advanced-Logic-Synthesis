@@ -514,10 +514,10 @@ total ADP is lower by `2147821`.
 ### Optional mockturtle integration
 
 - Added `student/mockturtle_opt.cpp`, a small mockturtle runner that can read an
-  AIG, apply AIG balance / cut rewrite / SOP refactoring / resubstitution /
-  `compress2rs` modes, and write a new AIG.
-- Added `student/build_mockturtle_opt.sh` to build the runner when WSL has
-  `g++` or `clang++` installed.
+  AIG, apply lightweight AIG balance and SOP refactoring modes, and write a new
+  AIG.
+- Added `student/build_mockturtle_opt.sh` to build the runnable
+  `student/mockturtle` binary when WSL has `g++` or `clang++` installed.
 - Added `--try-mockturtle` and `--mockturtle-bin` to `flow_optimizer.py`.
   During `--sweep-existing`, the optimizer can run mockturtle candidates first,
   then pass them through ABC cleanup, equivalence checking, ADP measurement, and
@@ -554,7 +554,7 @@ Compared with the previous `11723588`, the checked outputs are lower by `36`.
 - Added the same final all-case convergence sweep stage to `--reproduce-best`
   so this extra search is part of the reproducible workflow.
 - `--try-mockturtle` was included in the sweep command.  Because
-  `student/mockturtle_opt` is not built yet in this WSL environment, the
+  `student/mockturtle` is not built yet in this WSL environment, the
   optimizer printed a warning and safely skipped mockturtle candidates.  The
   ABC/GIA sweep flows still found additional equivalent improvements.
 - Key accepted improvements included:
@@ -586,3 +586,43 @@ Total ADP over equivalent cases: 11653116
 Compared with `11723552`, the convergence sweep reduced total ADP by `70436`.
 Compared with the pre-structural-template result of `13871409`, the current
 total ADP is lower by `2218293`.
+
+### Mixed ABC and mockturtle sweep
+
+- Rebuilt the optional `student/mockturtle` executable from
+  `student/mockturtle_src/` after installing `g++`.
+- Fixed the build script include/link setup for bundled mockturtle dependencies:
+  `nauty`, `abcsat`, `abcesop`, and header-only `fmt`.
+- Ran mixed sweeps using:
+
+```bash
+python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 1 --timeout-per-case 240 --try-mockturtle
+```
+
+- In this mode, each case tries mockturtle `light`, `refactor`, and `balance`
+  candidates first, then ABC cleanup, equivalence checking, and ADP selection.
+- The mockturtle candidates were equivalent but did not beat the current best
+  AIGs in the latest pass.  The same mixed loop still found additional ABC/GIA
+  improvements, including:
+
+```text
+ex207: 772824 -> 771912
+ex223: 236371 -> 235888
+ex225: 248078 -> 247802
+ex227: 860844 -> 857463
+ex250: 73854 -> 73634
+ex252: 243648 -> 242760
+ex298: 569338 -> 568612
+ex299: 2733744 -> 2728776
+```
+
+### Current verified result after mixed ABC/mockturtle sweeps
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11641063
+```
+
+Compared with `11653116`, the mixed sweep stage reduced total ADP by `12053`.
+Compared with the pre-structural-template result of `13871409`, the current
+total ADP is lower by `2230346`.
