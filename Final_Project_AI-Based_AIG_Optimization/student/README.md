@@ -205,6 +205,17 @@ python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 3 --time
 python3 student/flow_optimizer.py --range ex200 ex207 --sweep-existing --sweep-passes 3 --timeout-per-case 180
 ```
 
+Optionally enable the mockturtle AIG runner during the existing-output sweep.
+This requires a local `student/mockturtle/` checkout and a C++ compiler in WSL:
+
+```bash
+bash student/build_mockturtle_opt.sh
+python3 student/flow_optimizer.py --all --sweep-existing --try-mockturtle --timeout-per-case 240
+```
+
+If `student/mockturtle_opt` is not built, the optimizer prints a warning and
+continues without the optional mockturtle candidates.
+
 ## Outputs
 
 Final selected AIGs are written to:
@@ -266,7 +277,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 11793022
+Total ADP over equivalent cases: 11723552
 ```
 
 ## Notes

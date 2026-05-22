@@ -473,3 +473,75 @@ Total ADP over equivalent cases: 11793022
 Compared with the focused-rescue result of `11793274`, the current checked
 outputs are lower by `252`.  Compared with the pre-structural-template result of
 `13871409`, the current total ADP is lower by `2078387`.
+
+### All-case low-K mapping refinement
+
+- Added `sweep_lowk_if4` to the deterministic existing-output sweep:
+
+```text
+dch; if -K 4; strash; dc2; balance
+```
+
+- The purpose is to give every benchmark, including small cases, a low-fanin
+  remapping attempt instead of only spending time on the largest ADP cases.
+- This is still selected by the same safety rule: the output is overwritten only
+  when ABC confirms equivalence and the measured ADP is lower.
+- The full sweep improved both small and large cases, including:
+
+```text
+ex200: 63252 -> 63126
+ex203: 82026 -> 81984
+ex208: 34646 -> 34595
+ex240: 51313 -> 49565
+ex252: 320658 -> 264875
+ex269: 22842 -> 21014
+ex275: 294 -> 280
+ex298: 577192 -> 574442
+ex299: 2740464 -> 2740344
+```
+
+### Current verified result after all-case low-K refinement
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11723588
+```
+
+Compared with the previous `11793022`, this sweep reduced total ADP by `69434`.
+Compared with the pre-structural-template result of `13871409`, the current
+total ADP is lower by `2147821`.
+
+### Optional mockturtle integration
+
+- Added `student/mockturtle_opt.cpp`, a small mockturtle runner that can read an
+  AIG, apply AIG balance / cut rewrite / SOP refactoring / resubstitution /
+  `compress2rs` modes, and write a new AIG.
+- Added `student/build_mockturtle_opt.sh` to build the runner when WSL has
+  `g++` or `clang++` installed.
+- Added `--try-mockturtle` and `--mockturtle-bin` to `flow_optimizer.py`.
+  During `--sweep-existing`, the optimizer can run mockturtle candidates first,
+  then pass them through ABC cleanup, equivalence checking, ADP measurement, and
+  the usual lower-ADP-only replacement rule.
+- Current WSL environment did not have a C++ compiler, so the build script
+  correctly stopped with:
+
+```text
+No C++ compiler found. Install g++ or clang++ in WSL, then rerun this script.
+```
+
+- The `--try-mockturtle` smoke path was still tested without a binary. It safely
+  skipped mockturtle candidates and continued the normal sweep. That pass found
+  one additional equivalent ABC sweep improvement:
+
+```text
+ex200: 63126 -> 63090
+```
+
+### Current verified result after mockturtle hook smoke
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11723552
+```
+
+Compared with the previous `11723588`, the checked outputs are lower by `36`.

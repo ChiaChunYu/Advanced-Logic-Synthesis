@@ -125,6 +125,7 @@ POLISH_FLOWS = [
 SWEEP_FLOWS = [
     PostFlow("sweep_dc2_rw", "dc2; rewrite -z; refactor -z; balance"),
     PostFlow("sweep_fraig_dc2", "fraig; dc2; rewrite -z; balance"),
+    PostFlow("sweep_lowk_if4", "dch; if -K 4; strash; dc2; balance"),
     PostFlow("sweep_resub6_f1", "resub -K 6 -F 1; balance; rewrite -z; refactor -z; balance"),
     PostFlow("sweep_resub8_n2", "resub -K 8 -N 2; balance; rewrite -z; refactor -z; balance"),
     PostFlow("sweep_resub6_n3", "resub -K 6 -N 3; balance; rewrite -z; refactor -z; balance"),
@@ -133,6 +134,9 @@ SWEEP_FLOWS = [
     PostFlow("sweep_gia_resyn3rs", "&get; &resyn3rs; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
     PostFlow("sweep_gia_dc2", "&get; &dc2; &put; balance; rewrite -z; refactor -z; dc2; balance"),
 ]
+
+MOCKTURTLE_MODES = ["light", "compress2rs", "rewrite", "refactor", "resub", "balance"]
+MOCKTURTLE_POST_FLOW = PostFlow("mockturtle_abc_cleanup", "dc2; rewrite -z; refactor -z; balance")
 
 GA_COMMAND_POOL = [
     "balance",
@@ -1258,6 +1262,19 @@ def polish_aig(
     out_aig.parent.mkdir(parents=True, exist_ok=True)
     command = f"read {abc_path(source_aig, root)}; {flow.commands}; write_aiger -s {abc_path(out_aig, root)}"
     run_abc(abc, command, timeout, root)
+
+
+def run_mockturtle_opt(mockturtle_bin: Path, source_aig: Path, out_aig: Path, mode: str, timeout: int, root: Path) -> None:
+    out_aig.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        [str(mockturtle_bin), str(source_aig), str(out_aig), mode],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=timeout,
+        check=True,
+    )
 
 
 def is_equivalent(abc: Path, truth: Path, aig: Path, timeout: int, root: Path) -> bool:
@@ -2679,6 +2696,8 @@ def sweep_existing_case(
     logs: Path,
     timeout_per_case: int,
     root: Path,
+    try_mockturtle: bool = False,
+    mockturtle_bin: Path | None = None,
 ) -> tuple[list[CandidateResult], CaseSummary]:
     truth = benchmarks / f"{case}.truth"
     source = output / f"{case}.aig"
@@ -2706,6 +2725,39 @@ def sweep_existing_case(
     ]
     best = results[0]
     deadline = time.monotonic() + timeout_per_case
+
+    if try_mockturtle and mockturtle_bin is not None and mockturtle_bin.is_file():
+        for mode in MOCKTURTLE_MODES:
+            remaining = max(1, int(deadline - time.monotonic()))
+            if remaining <= 1:
+                break
+            assert best.aig is not None
+            raw_aig = tmp / f"{case}_mockturtle_{mode}_raw.aig"
+            candidate_aig = tmp / f"{case}_mockturtle_{mode}.aig"
+            result = CandidateResult(
+                case=case,
+                initial_method="existing_output_mockturtle",
+                flow_name=f"mockturtle_{mode}_abc_cleanup",
+                flow_commands=f"mockturtle:{mode}; {MOCKTURTLE_POST_FLOW.commands}",
+                aig=candidate_aig,
+            )
+            try:
+                run_mockturtle_opt(mockturtle_bin, best.aig, raw_aig, mode, min(remaining, 120), root)
+                polish_aig(abc, raw_aig, MOCKTURTLE_POST_FLOW, candidate_aig, min(remaining, 120), root)
+                result.equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+                if result.equivalent:
+                    result.area, result.delay, result.adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                    result.status = "OK"
+                    if result.adp is not None and result.adp < (best.adp or 10**30):
+                        best = result
+                else:
+                    result.status = "NOT_EQUIV"
+            except subprocess.TimeoutExpired:
+                result.status = "TIMEOUT"
+            except Exception:
+                result.status = "ERROR"
+            results.append(result)
+
     for index, flow in enumerate(SWEEP_FLOWS):
         remaining = max(1, int(deadline - time.monotonic()))
         if remaining <= 1:
@@ -2776,6 +2828,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--polish-passes", type=int, default=1, help="number of in-place polish passes when --polish-existing is used")
     parser.add_argument("--sweep-existing", action="store_true", help="run deterministic per-case hill-climb sweep on existing AIGs")
     parser.add_argument("--sweep-passes", type=int, default=1, help="number of sweep passes when --sweep-existing is used")
+    parser.add_argument("--try-mockturtle", action="store_true", help="try optional mockturtle AIG rewrites during existing-output sweep")
+    parser.add_argument("--mockturtle-bin", type=Path, default=Path("student/mockturtle_opt"), help="path to optional mockturtle optimizer binary")
     parser.add_argument("--report-stats", action="store_true", help="print report-oriented aggregate statistics")
     parser.add_argument("--ablation-report", action="store_true", help="summarize candidate history and method wins")
     parser.add_argument("--diagnose-results", action="store_true", help="classify current outputs by likely optimization bottleneck")
@@ -2895,6 +2949,8 @@ def main() -> int:
     all_results: list[CandidateResult] = []
     summaries: list[CaseSummary] = []
     if args.sweep_existing:
+        if args.try_mockturtle and not args.mockturtle_bin.is_file():
+            print(f"[mockturtle] binary not found at {args.mockturtle_bin}; skipping optional mockturtle sweep")
         sweep_passes = max(1, args.sweep_passes)
         for pass_index in range(sweep_passes):
             pass_results: list[CandidateResult] = []
@@ -2910,6 +2966,8 @@ def main() -> int:
                     args.logs,
                     args.timeout_per_case,
                     root,
+                    args.try_mockturtle,
+                    args.mockturtle_bin,
                 )
                 pass_results.extend(rows)
                 pass_summaries.append(summary)
