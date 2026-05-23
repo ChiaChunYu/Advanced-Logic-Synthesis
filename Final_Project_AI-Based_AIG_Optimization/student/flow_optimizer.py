@@ -137,6 +137,21 @@ SWEEP_FLOWS = [
 
 MOCKTURTLE_MODES = ["light", "refactor", "balance"]
 MOCKTURTLE_POST_FLOW = PostFlow("mockturtle_abc_cleanup", "dc2; rewrite -z; refactor -z; balance")
+STRUCTURAL_MOCKTURTLE_MODES = [
+    "xag_xor_heavy",
+    "mig_majority",
+    "xmg_arithmetic",
+    "aig_resub",
+    "functional_reduction",
+    "roundtrip_xag",
+    "roundtrip_mig",
+    "roundtrip_xmg",
+]
+MOCKTURTLE_STRUCTURAL_POLISH_FLOWS = [
+    PostFlow("mt_dc2_balance", "strash; dc2; balance"),
+    PostFlow("mt_rw_rf_dc2", "strash; rewrite -z; refactor -z; dc2"),
+    PostFlow("mt_balance_rw_balance", "strash; balance; rewrite; balance"),
+]
 
 GA_COMMAND_POOL = [
     "balance",
@@ -171,6 +186,7 @@ REPRODUCE_POLISH_PASSES = 30
 REPRODUCE_SWEEP_PASSES = 3
 REPRODUCE_FINAL_SWEEP_PASSES = 3
 REPRODUCE_FRONT_RANGE = ("ex200", "ex207")
+REPRODUCE_MOCKTURTLE_STRUCTURAL_TIMEOUT = 45
 
 
 def split_commands(commands: str) -> list[str]:
@@ -1278,6 +1294,128 @@ def run_mockturtle_opt(mockturtle_bin: Path, source_aig: Path, out_aig: Path, mo
     )
 
 
+def ensure_structural_mockturtle(mockturtle_bin: Path, root: Path) -> tuple[bool, str]:
+    binary = mockturtle_bin if mockturtle_bin.is_absolute() else root / mockturtle_bin
+    if binary.is_file():
+        return True, ""
+
+    source_dir = root / "student" / "mockturtle_opt"
+    build_dir = source_dir / "build"
+    if not (source_dir / "CMakeLists.txt").is_file():
+        return False, f"missing CMake project: {source_dir}"
+
+    try:
+        configure = subprocess.run(
+            ["cmake", "-S", str(source_dir), "-B", str(build_dir)],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=180,
+        )
+        if configure.returncode != 0:
+            return False, (configure.stderr or configure.stdout).strip()
+        build = subprocess.run(
+            ["cmake", "--build", str(build_dir), "--target", "mockturtle_opt", "-j2"],
+            cwd=root,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=600,
+        )
+        if build.returncode != 0:
+            return False, (build.stderr or build.stdout).strip()
+    except FileNotFoundError as exc:
+        return False, f"cmake is unavailable: {exc}"
+    except subprocess.TimeoutExpired:
+        return False, "mockturtle_opt build timed out"
+
+    if binary.is_file():
+        return True, ""
+    return False, f"build completed but binary was not found at {binary}"
+
+
+def run_structural_mockturtle_opt(
+    mockturtle_bin: Path,
+    truth: Path,
+    source_aig: Path,
+    out_aig: Path,
+    mode: str,
+    timeout: int,
+    root: Path,
+) -> None:
+    out_aig.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [
+            str(mockturtle_bin),
+            "--input-truth",
+            str(truth),
+            "--input-aig",
+            str(source_aig),
+            "--output-aig",
+            str(out_aig),
+            "--mode",
+            mode,
+        ],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        message = (result.stderr or result.stdout or f"mockturtle_opt exited with {result.returncode}").strip()
+        raise RuntimeError(message)
+
+
+def append_mockturtle_candidates_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = ["case", "mode", "fingerprint_reason", "generated", "equivalent", "area", "delay", "adp", "improved", "error"]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
+def select_structural_mockturtle_modes(
+    fingerprint,
+    current_area: int,
+    current_delay: int,
+    current_adp: int,
+) -> tuple[list[str], str]:
+    labels = set(fingerprint.labels)
+    strategy = fingerprint.recommended_strategy
+    modes: list[str] = []
+    reasons: list[str] = []
+
+    def add(mode: str, reason: str) -> None:
+        if mode not in modes:
+            modes.append(mode)
+            reasons.append(reason)
+
+    if labels & {"parity", "affine", "adder_sum_like"} or "xor" in strategy:
+        add("xag_xor_heavy", "XOR/affine fingerprint")
+    if labels & {"majority", "threshold_positive", "threshold_negative", "exact_k", "carry_like", "symmetric", "symmetric_variable_groups"}:
+        add("mig_majority", "majority/threshold/symmetric fingerprint")
+    if labels & {"carry_like", "adder_sum_like"} or "arithmetic" in strategy:
+        add("xmg_arithmetic", "mixed XOR/majority arithmetic fingerprint")
+    if "mux_like" in labels:
+        add("roundtrip_xag", "mux-like Shannon structure")
+    if current_area >= 20000 or current_adp >= 300000:
+        add("aig_resub", "large structural AIG after previous synthesis")
+    if current_delay >= 18 and len(modes) < 2:
+        add("roundtrip_mig", "delay-oriented majority roundtrip")
+    if len(modes) < 2:
+        add("functional_reduction", "redundancy-oriented fallback")
+    if len(modes) < 2:
+        add("roundtrip_xag", "XAG roundtrip fallback")
+
+    return modes[:2], "; ".join(reasons[:2])
+
+
 def is_equivalent(abc: Path, truth: Path, aig: Path, timeout: int, root: Path) -> bool:
     output = run_abc(abc, f"read_truth -xf {abc_path(truth, root)}; st; &get; &cec -t {abc_path(aig, root)}", timeout, root)
     return "Networks are equivalent" in output
@@ -1291,6 +1429,142 @@ def measure_adp(abc: Path, aig: Path, timeout: int, root: Path) -> tuple[int, in
     area = int(match.group(1))
     delay = int(match.group(2))
     return area, delay, area * delay
+
+
+def run_mockturtle_structural_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    mockturtle_bin: Path,
+    explicit_mode: str | None = None,
+) -> list[dict[str, object]]:
+    truth = benchmarks / f"{case}.truth"
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        source.parent.mkdir(parents=True, exist_ok=True)
+        run_abc(abc, f"read_truth -xf {abc_path(truth, root)}; st; write_aiger -s {abc_path(source, root)}", 120, root)
+
+    tmp = logs / "tmp_mockturtle_structural" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    best_area, best_delay, best_adp = base_area, base_delay, base_adp
+    fingerprint = fingerprint_case(truth)
+    if explicit_mode is not None:
+        modes = [explicit_mode]
+        fingerprint_reason = f"explicit mode; labels={','.join(fingerprint.labels) or 'general'}"
+    else:
+        modes, fingerprint_reason = select_structural_mockturtle_modes(fingerprint, base_area, base_delay, base_adp)
+
+    rows: list[dict[str, object]] = []
+    deadline = time.monotonic() + timeout_per_case
+    for mode in modes:
+        if mode not in STRUCTURAL_MOCKTURTLE_MODES:
+            rows.append(
+                {
+                    "case": case,
+                    "mode": mode,
+                    "fingerprint_reason": fingerprint_reason,
+                    "generated": 0,
+                    "equivalent": 0,
+                    "improved": 0,
+                    "error": f"unsupported mode: {mode}",
+                }
+            )
+            continue
+
+        remaining = max(1, int(deadline - time.monotonic()))
+        if remaining <= 1:
+            rows.append(
+                {
+                    "case": case,
+                    "mode": mode,
+                    "fingerprint_reason": fingerprint_reason,
+                    "generated": 0,
+                    "equivalent": 0,
+                    "improved": 0,
+                    "error": "case timeout before mockturtle generation",
+                }
+            )
+            break
+
+        raw_aig = tmp / f"{case}_{mode}_raw.aig"
+        try:
+            run_structural_mockturtle_opt(mockturtle_bin, truth, source, raw_aig, mode, min(remaining, 180), root)
+        except subprocess.TimeoutExpired:
+            rows.append(
+                {
+                    "case": case,
+                    "mode": mode,
+                    "fingerprint_reason": fingerprint_reason,
+                    "generated": 0,
+                    "equivalent": 0,
+                    "improved": 0,
+                    "error": "mockturtle generation timeout",
+                }
+            )
+            continue
+        except Exception as exc:
+            rows.append(
+                {
+                    "case": case,
+                    "mode": mode,
+                    "fingerprint_reason": fingerprint_reason,
+                    "generated": 0,
+                    "equivalent": 0,
+                    "improved": 0,
+                    "error": str(exc)[:500],
+                }
+            )
+            continue
+
+        for flow in MOCKTURTLE_STRUCTURAL_POLISH_FLOWS:
+            remaining = max(1, int(deadline - time.monotonic()))
+            row: dict[str, object] = {
+                "case": case,
+                "mode": f"{mode}+{flow.name}",
+                "fingerprint_reason": fingerprint_reason,
+                "generated": 1,
+                "equivalent": 0,
+                "improved": 0,
+            }
+            if remaining <= 1:
+                row["error"] = "case timeout before ABC polish"
+                rows.append(row)
+                break
+
+            candidate_aig = tmp / f"{case}_{mode}_{flow.name}.aig"
+            try:
+                polish_aig(abc, raw_aig, flow, candidate_aig, min(remaining, 120), root)
+                equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+                row["equivalent"] = int(equivalent)
+                if equivalent:
+                    area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                    improved = adp < best_adp
+                    row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "error": ""})
+                    if improved:
+                        shutil.copyfile(candidate_aig, source)
+                        best_area, best_delay, best_adp = area, delay, adp
+                else:
+                    row["error"] = "not equivalent"
+            except subprocess.TimeoutExpired:
+                row["error"] = "ABC polish/check timeout"
+            except Exception as exc:
+                row["error"] = str(exc)[:500]
+            rows.append(row)
+
+    append_mockturtle_candidates_csv(logs / "mockturtle_candidates.csv", rows)
+    if best_adp < base_adp:
+        print(f"[{case}] mockturtle structural improved ADP {base_adp} -> {best_adp} ({best_area}/{best_delay})")
+    else:
+        print(f"[{case}] mockturtle structural kept current ADP {base_adp}")
+    return rows
 
 
 def optimize_case(
@@ -2406,7 +2680,7 @@ def verify_final_outputs(
 
 def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[CandidateResult], list[CaseSummary]]:
     step_results: list[CandidateResult] = []
-    print("[reproduce] stage 1/10: full hybrid synthesis search")
+    print("[reproduce] stage 1/11: full hybrid synthesis search")
     for case in ALL_CASES:
         print(f"[{case}] optimizing")
         rows, summary = optimize_case(
@@ -2428,7 +2702,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     for range_index, (start_case, end_case) in enumerate(REPRODUCE_ARITHMETIC_RANGES, start=2):
-        print(f"[reproduce] stage {range_index}/10: focused arithmetic range {start_case}-{end_case}")
+        print(f"[reproduce] stage {range_index}/11: focused arithmetic range {start_case}-{end_case}")
         for case in inclusive_cases(start_case, end_case):
             print(f"[{case}] optimizing focused range")
             rows, summary = optimize_case(
@@ -2450,7 +2724,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 5/10: focused divider quotient range "
+        f"[reproduce] stage 5/11: focused divider quotient range "
         f"{REPRODUCE_DIVIDER_RANGE[0]}-{REPRODUCE_DIVIDER_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_DIVIDER_RANGE):
@@ -2474,7 +2748,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 6/10: focused square-root range "
+        f"[reproduce] stage 6/11: focused square-root range "
         f"{REPRODUCE_SQRT_RANGE[0]}-{REPRODUCE_SQRT_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_SQRT_RANGE):
@@ -2497,7 +2771,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 7/10: focused diagnosis-driven rescue cases")
+    print("[reproduce] stage 7/11: focused diagnosis-driven rescue cases")
     for case in REPRODUCE_RESCUE_CASES:
         print(f"[{case}] optimizing focused rescue case")
         rows, summary = optimize_case(
@@ -2520,7 +2794,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 8/10: equivalence-checked polish passes")
+    print("[reproduce] stage 8/11: equivalence-checked polish passes")
     for pass_index in range(REPRODUCE_POLISH_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[polish] pass {pass_index + 1}/{REPRODUCE_POLISH_PASSES}")
@@ -2548,7 +2822,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[polish] converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 9/10: deterministic sweep passes")
+    print("[reproduce] stage 9/11: deterministic sweep passes")
     for pass_index in range(REPRODUCE_SWEEP_PASSES):
         pass_summaries = []
         print(f"[sweep] all cases pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
@@ -2602,7 +2876,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[sweep] focused range converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 10/10: final all-case convergence sweeps")
+    print("[reproduce] stage 10/11: final all-case convergence sweeps")
     for pass_index in range(REPRODUCE_FINAL_SWEEP_PASSES):
         pass_summaries = []
         print(f"[sweep] final all cases pass {pass_index + 1}/{REPRODUCE_FINAL_SWEEP_PASSES}")
@@ -2629,6 +2903,25 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         if best_total >= baseline_total:
             print("[sweep] final all-case sweep converged: no pass-level ADP improvement")
             break
+
+    print("[reproduce] stage 11/11: fingerprint-guided mockturtle structural resynthesis")
+    ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
+    if not ok:
+        print(f"[mockturtle-structural] unavailable, skipping: {error}")
+    else:
+        for case in ALL_CASES:
+            print(f"[{case}] mockturtle structural")
+            run_mockturtle_structural_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                REPRODUCE_MOCKTURTLE_STRUCTURAL_TIMEOUT,
+                root,
+                args.mockturtle_structural_bin,
+                None,
+            )
 
     write_results_csv(args.logs / "reproduce_candidates.csv", step_results)
     final_results, final_summaries = verify_final_outputs(ALL_CASES, args.abc, args.benchmarks, args.output, root)
@@ -2863,6 +3156,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sweep-passes", type=int, default=1, help="number of sweep passes when --sweep-existing is used")
     parser.add_argument("--try-mockturtle", action="store_true", help="try optional mockturtle AIG rewrites during existing-output sweep")
     parser.add_argument("--mockturtle-bin", type=Path, default=Path("student/mockturtle"), help="path to optional mockturtle optimizer binary")
+    parser.add_argument("--mockturtle-structural", action="store_true", help="try fingerprint-guided structural mockturtle resynthesis")
+    parser.add_argument("--mockturtle-case", help="run structural mockturtle resynthesis on one case")
+    parser.add_argument("--mode", choices=STRUCTURAL_MOCKTURTLE_MODES, help="explicit structural mockturtle mode for --mockturtle-case")
+    parser.add_argument(
+        "--mockturtle-structural-bin",
+        type=Path,
+        default=Path("student/mockturtle_opt/mockturtle_opt"),
+        help="path to the structural mockturtle optimizer binary",
+    )
     parser.add_argument("--report-stats", action="store_true", help="print report-oriented aggregate statistics")
     parser.add_argument("--ablation-report", action="store_true", help="summarize candidate history and method wins")
     parser.add_argument("--diagnose-results", action="store_true", help="classify current outputs by likely optimization bottleneck")
@@ -2960,6 +3262,35 @@ def main() -> int:
         return 0
     if args.score_aware_optimize:
         run_score_aware_optimize(args, root)
+        return 0
+    if args.mockturtle_structural or args.mockturtle_case:
+        ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
+        if not ok:
+            print(f"[mockturtle-structural] unavailable, skipping: {error}")
+            return 0
+        if args.mockturtle_case:
+            cases = [args.mockturtle_case]
+        elif args.case:
+            cases = [args.case]
+        elif args.range:
+            start = int(args.range[0].removeprefix("ex"))
+            end = int(args.range[1].removeprefix("ex"))
+            cases = [f"ex{i}" for i in range(start, end + 1)]
+        else:
+            cases = ALL_CASES
+        for case in cases:
+            print(f"[{case}] mockturtle structural")
+            run_mockturtle_structural_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                args.mockturtle_structural_bin,
+                args.mode,
+            )
         return 0
 
     if args.reproduce_best:

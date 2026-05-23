@@ -42,6 +42,12 @@ optimization:
 - Iterative in-place polish passes using equivalence-checked cleanup,
   `dch/if/strash`, `fraig`, `resub` parameter variants, `orchestrate`,
   `dchoice/ifraig`, GIA `&resyn3rs`, and rewrite/refactor loops.
+- Fingerprint-guided mockturtle structural resynthesis.  The optimizer selects
+  at most two structural modes per case, such as XAG rewriting for XOR-heavy
+  logic, MIG rewriting for majority/threshold logic, XMG rewriting for mixed
+  arithmetic logic, and AIG resubstitution/functional reduction for general
+  high-area logic.  Each mockturtle candidate is still polished and verified by
+  ABC before it can replace an output.
 - Pareto frontier tracking for equivalent candidates by area and delay.
 
 Each initial circuit is written as BLIF or generated through ABC, then optimized
@@ -86,6 +92,7 @@ python3 student/flow_optimizer.py --case ex252 --max-candidates 120 --timeout-pe
 python3 student/flow_optimizer.py --all --polish-existing --polish-passes 30
 python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 3 --timeout-per-case 180
 python3 student/flow_optimizer.py --range ex200 ex207 --sweep-existing --sweep-passes 3 --timeout-per-case 180
+python3 student/flow_optimizer.py --mockturtle-structural --timeout-per-case 45
 python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
 ```
 
@@ -216,6 +223,18 @@ python3 student/flow_optimizer.py --all --sweep-existing --try-mockturtle --time
 If `student/mockturtle` is not built, the optimizer prints a warning and
 continues without the optional mockturtle candidates.
 
+Run the newer structural mockturtle engine.  This is not a random sweep: the
+Boolean fingerprint selects at most two modes per case, then ABC runs a small
+fixed polish set and accepts only equivalent lower-ADP candidates:
+
+```bash
+# Requires local mockturtle headers under student/mockturtle_src/
+cmake -S student/mockturtle_opt -B student/mockturtle_opt/build
+cmake --build student/mockturtle_opt/build --target mockturtle_opt -j2
+python3 student/flow_optimizer.py --mockturtle-structural --timeout-per-case 45
+python3 student/flow_optimizer.py --mockturtle-case ex200 --mode xag_xor_heavy --timeout-per-case 120
+```
+
 ## Outputs
 
 Final selected AIGs are written to:
@@ -263,6 +282,7 @@ student/logs/template_validation.csv
 student/logs/round_robin_summary.csv
 student/logs/score_aware_schedule.csv
 student/logs/score_aware_summary.csv
+student/logs/mockturtle_candidates.csv
 ```
 
 ## Verified Result
@@ -277,7 +297,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 11641063
+Total ADP over equivalent cases: 11458971
 ```
 
 ## Notes

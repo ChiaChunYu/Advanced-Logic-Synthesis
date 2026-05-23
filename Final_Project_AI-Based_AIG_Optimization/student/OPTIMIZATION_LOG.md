@@ -32,6 +32,7 @@ It connects each commit to the optimizer milestone it introduced.
 | working tree | 2026-05-22 | `feat: add diagnosis-driven optimization reports` | Added ablation, bottleneck diagnosis, template validation, rescue-worst, complement-first, BDD sift, and history-guided GA entry points. |
 | working tree | 2026-05-22 | `feat: add focused ex252 rescue stage` | Used diagnosis-guided rescue to find a better ex252 BDD/Shannon candidate and added the reproducible stage to `--reproduce-best`. |
 | working tree | 2026-05-22 | `feat: add fair per-case coverage scheduler` | Added case coverage reporting plus complete-all, round-robin, and score-aware schedulers so small cases are not starved by high-ADP rescue. |
+| working tree | 2026-05-23 | `feat: add fingerprint-guided mockturtle structural resynthesis` | Added a CMake-built mockturtle structural engine, fingerprint-to-mode mapping, ABC-polished mockturtle candidates, and a final `--reproduce-best` structural stage. |
 
 ## 2026-05-21
 
@@ -626,3 +627,61 @@ Total ADP over equivalent cases: 11641063
 Compared with `11653116`, the mixed sweep stage reduced total ADP by `12053`.
 Compared with the pre-structural-template result of `13871409`, the current
 total ADP is lower by `2230346`.
+
+### Fingerprint-guided mockturtle structural resynthesis
+
+- Inspected the local `student/mockturtle_src/` headers and wrote the supported
+  API findings to `student/MOCKTURTLE_PLAN.md`.
+- Added `student/mockturtle_opt/`, a CMake-built structural mockturtle tool with
+  modes for XAG, MIG, XMG, AIG resubstitution, functional reduction, and
+  XAG/MIG/XMG round-trips.
+- Added `--mockturtle-structural` and `--mockturtle-case` to
+  `student/flow_optimizer.py`.
+- The new path uses Boolean fingerprint labels to select at most two modes per
+  case instead of randomly sweeping commands:
+
+```text
+parity/affine           -> xag_xor_heavy, roundtrip_xag
+majority/threshold      -> mig_majority, roundtrip_mig
+arithmetic XOR+majority -> xmg_arithmetic, roundtrip_xmg
+large/general AIG       -> aig_resub, functional_reduction
+```
+
+- Every mockturtle output is polished by a small fixed ABC set, checked for
+  equivalence against the original truth table, measured with ABC `ps`, and
+  accepted only when ADP is lower than the current output.
+- Added the structural mockturtle pass to the final stage of
+  `--reproduce-best`.  If the C++ tool cannot be built, this stage prints a
+  warning and leaves the existing verified outputs unchanged.
+- Full pass command used for the latest result:
+
+```bash
+python3 student/flow_optimizer.py --mockturtle-structural --timeout-per-case 45
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+```
+
+- Representative accepted improvements:
+
+```text
+ex200: 62982 -> 60588
+ex201: 28080 -> 26605
+ex206: 656167 -> 639870
+ex220: 229108 -> 221100
+ex226: 701778 -> 678510
+ex256: 2869 -> 2652
+ex259: 13888 -> 11726
+ex269: 20856 -> 17930
+ex274: 45156 -> 31325
+ex299: 2728776 -> 2727672
+```
+
+### Current verified result after structural mockturtle pass
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11458971
+```
+
+Compared with `11641063`, the structural mockturtle stage reduced total ADP by
+`182092`.  Compared with the pre-structural-template result of `13871409`, the
+current total ADP is lower by `2412438`.
