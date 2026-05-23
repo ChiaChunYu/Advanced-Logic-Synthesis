@@ -95,6 +95,8 @@ The recipe is fixed, not a random command sweep:
 - equivalence-checked polish packages
 - deterministic all-case refinement packages
 - fingerprint-guided mockturtle structural resynthesis
+- final type-guided circuit-family refinement for every case
+- final objective-guided area/delay/balanced refinement for every case
 
 The old experimental subcommands are still available for research, but the
 submission flow should use `bash student/reproduce_best.sh`.
@@ -238,6 +240,25 @@ python3 student/flow_optimizer.py --mockturtle-structural --timeout-per-case 45
 python3 student/flow_optimizer.py --mockturtle-case ex200 --mode xag_xor_heavy --timeout-per-case 120
 ```
 
+Run the final type-guided refinement package.  Every selected case is
+fingerprinted first, assigned to a circuit family, then optimized with a small
+fixed package for that family:
+
+```bash
+python3 student/flow_optimizer.py --type-guided-refine --type-guided-max-flows 8 --timeout-per-case 180
+```
+
+The families are `xor_affine`, `threshold_majority`, `mux_shannon`,
+`arithmetic`, `small_template`, and `general`.
+
+Run the objective-guided refinement package.  Every case tries fixed
+area-first, delay-first, and balanced packages, then keeps the equivalent
+candidate with the lowest ADP:
+
+```bash
+python3 student/flow_optimizer.py --objective-guided-refine --objective-max-per-family 3 --timeout-per-case 180
+```
+
 ## Outputs
 
 Final selected AIGs are written to:
@@ -286,6 +307,8 @@ student/logs/round_robin_summary.csv
 student/logs/score_aware_schedule.csv
 student/logs/score_aware_summary.csv
 student/logs/mockturtle_candidates.csv
+student/logs/type_guided_refine.csv
+student/logs/objective_guided_refine.csv
 ```
 
 ## Verified Result
@@ -300,7 +323,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 11458971
+Total ADP over equivalent cases: 11347482
 ```
 
 ## Notes

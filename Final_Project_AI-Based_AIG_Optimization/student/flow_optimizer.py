@@ -153,6 +153,67 @@ MOCKTURTLE_STRUCTURAL_POLISH_FLOWS = [
     PostFlow("mt_balance_rw_balance", "strash; balance; rewrite; balance"),
 ]
 
+TYPE_GUIDED_FLOW_LIBRARY = {
+    "xor_affine": [
+        PostFlow("type_xor_balance_rewrite", "balance; rewrite -z; balance; dc2; balance"),
+        PostFlow("type_xor_gia_resyn", "&get; &resyn3rs; &compress3rs; &put; balance; rewrite -z; dc2; balance"),
+        PostFlow("type_xor_resub6", "resub -K 6 -F 1; balance; rewrite -z; dc2; balance"),
+    ],
+    "threshold_majority": [
+        PostFlow("type_maj_lowk_if4", "dch; if -K 4; strash; rewrite -z; dc2; balance"),
+        PostFlow("type_maj_lowk_if5", "dch; if -K 5; strash; rewrite -z; refactor -z; balance"),
+        PostFlow("type_maj_gia_dch", "&get; &dch; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+    ],
+    "mux_shannon": [
+        PostFlow("type_mux_dch_if8", "dch; if -K 8; strash; dc2; balance; rewrite -z; balance"),
+        PostFlow("type_mux_dch_if12", "dch; if -K 12; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+        PostFlow("type_mux_dchoice_ifraig", "dchoice; ifraig; dc2; balance; rewrite -z; refactor -z; balance"),
+    ],
+    "arithmetic": [
+        PostFlow("type_arith_gia_mfs", "&get; &mfs; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+        PostFlow("type_arith_gia_resyn_mfs", "&get; &resyn3; &mfs; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+        PostFlow("type_arith_dch_if14", "dch; if -K 14; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+    ],
+    "small_template": [
+        PostFlow("type_small_rewrite_refactor", "rewrite; rewrite -z; refactor; refactor -z; balance; dc2; balance"),
+        PostFlow("type_small_resub4", "resub -K 4; balance; rewrite -z; refactor -z; balance"),
+        PostFlow("type_small_fraig", "fraig; dc2; rewrite -z; balance"),
+    ],
+    "general": [
+        PostFlow("type_general_dc2", "dc2; rewrite -z; refactor -z; dc2; balance"),
+        PostFlow("type_general_dchoice", "dchoice; ifraig; dc2; balance; rewrite -z; refactor -z; balance"),
+        PostFlow("type_general_gia_sopb", "&get; &sopb -C 16 -R 1; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+        PostFlow("type_general_gia_dsd", "&get; &dsd; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+        PostFlow("type_general_gia_b_delay", "&get; &b -d -s; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+        PostFlow("type_general_gia_deep", "&get; &resyn3; &mfs; &compress3rs; &resyn3rs; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+        PostFlow("type_general_gia_dc2", "&get; &dc2; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+    ],
+}
+
+TYPE_GUIDED_SHARED_FLOWS = [
+    PostFlow("type_shared_delay_if10", "dch; if -K 10; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("type_shared_area_orchestrate", "orchestrate -K 12 -N 2 -F 1; balance; rewrite -z; refactor -z; dc2; balance"),
+]
+
+OBJECTIVE_GUIDED_FLOW_LIBRARY = {
+    "area": [
+        PostFlow("obj_area_dc2_loop", "dc2; rewrite -z; refactor -z; dc2; rewrite -z; refactor -z; balance"),
+        PostFlow("obj_area_gia_dc2", "&get; &dc2; &compress3rs; &put; rewrite -z; refactor -z; dc2; balance"),
+        PostFlow("obj_area_fraig", "fraig; dc2; rewrite -z; refactor -z; balance"),
+    ],
+    "delay": [
+        PostFlow("obj_delay_if6", "dch; if -K 6; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+        PostFlow("obj_delay_if10", "dch; if -K 10; strash; dc2; balance; rewrite -z; refactor -z; balance"),
+        PostFlow("obj_delay_gia_b", "&get; &b -d -s; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+        PostFlow("obj_delay_sopb", "&get; &sopb -C 16 -R 1; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+    ],
+    "balanced": [
+        PostFlow("obj_balanced_dchoice", "dchoice; ifraig; dc2; balance; rewrite -z; refactor -z; balance"),
+        PostFlow("obj_balanced_orchestrate", "orchestrate -K 12 -N 2 -F 1; balance; rewrite -z; refactor -z; dc2; balance"),
+        PostFlow("obj_balanced_gia_deep", "&get; &resyn3; &mfs; &compress3rs; &resyn3rs; &compress3rs; &put; balance; rewrite -z; refactor -z; dc2; balance"),
+    ],
+}
+
 GA_COMMAND_POOL = [
     "balance",
     "rewrite",
@@ -187,6 +248,10 @@ REPRODUCE_SWEEP_PASSES = 3
 REPRODUCE_FINAL_SWEEP_PASSES = 3
 REPRODUCE_FRONT_RANGE = ("ex200", "ex207")
 REPRODUCE_MOCKTURTLE_STRUCTURAL_TIMEOUT = 45
+REPRODUCE_TYPE_GUIDED_TIMEOUT = 180
+REPRODUCE_TYPE_GUIDED_MAX_FLOWS = 8
+REPRODUCE_OBJECTIVE_GUIDED_TIMEOUT = 180
+REPRODUCE_OBJECTIVE_MAX_PER_FAMILY = 3
 REPRODUCE_RECIPE = [
     (
         "1",
@@ -241,6 +306,18 @@ REPRODUCE_RECIPE = [
         "fingerprint_guided_mockturtle_structural",
         "Select at most two mockturtle structural modes per case from Boolean fingerprints, then ABC-polish and verify.",
         f"timeout_per_case={REPRODUCE_MOCKTURTLE_STRUCTURAL_TIMEOUT}",
+    ),
+    (
+        "12",
+        "type_guided_final_refinement",
+        "Classify every case again and run a fixed circuit-family-specific ABC refinement package.",
+        f"max_flows={REPRODUCE_TYPE_GUIDED_MAX_FLOWS}, timeout_per_case={REPRODUCE_TYPE_GUIDED_TIMEOUT}",
+    ),
+    (
+        "13",
+        "objective_guided_area_delay_refinement",
+        "Run fixed area-first, delay-first, and balanced packages on every case and select by ADP.",
+        f"max_per_family={REPRODUCE_OBJECTIVE_MAX_PER_FAMILY}, timeout_per_case={REPRODUCE_OBJECTIVE_GUIDED_TIMEOUT}",
     ),
 ]
 
@@ -1502,6 +1579,106 @@ def select_structural_mockturtle_modes(
     return modes[:2], "; ".join(reasons[:2])
 
 
+def type_guided_family(fingerprint) -> tuple[str, str]:
+    labels = set(fingerprint.labels)
+    strategy = fingerprint.recommended_strategy
+    if labels & {"parity", "affine", "adder_sum_like"} or "xor" in strategy:
+        return "xor_affine", "affine/parity or XOR-heavy fingerprint"
+    if labels & {"carry_like"} or "arithmetic" in strategy:
+        return "arithmetic", "arithmetic XOR/majority fingerprint"
+    if labels & {"majority", "threshold_positive", "threshold_negative", "exact_k", "one_hot_exactly_one", "symmetric", "symmetric_variable_groups"}:
+        return "threshold_majority", "threshold/majority/symmetric fingerprint"
+    if "mux_like" in labels or "shannon" in strategy:
+        return "mux_shannon", "mux-like or Shannon selector fingerprint"
+    if len(fingerprint.effective_support) <= 6 or any(label.startswith("npn_") for label in labels):
+        return "small_template", "small-support/NPN-template fingerprint"
+    return "general", "general mixed-logic fingerprint"
+
+
+def select_type_guided_flows(fingerprint, area: int, delay: int, adp: int, limit: int) -> tuple[str, str, list[PostFlow]]:
+    family, reason = type_guided_family(fingerprint)
+    flows = list(TYPE_GUIDED_FLOW_LIBRARY[family])
+    if delay >= 18:
+        flows.append(TYPE_GUIDED_SHARED_FLOWS[0])
+    if area >= 5000 or adp >= 100000:
+        flows.append(TYPE_GUIDED_SHARED_FLOWS[1])
+    if family != "general":
+        flows.append(TYPE_GUIDED_FLOW_LIBRARY["general"][0])
+
+    deduped: list[PostFlow] = []
+    seen: set[str] = set()
+    for flow in flows:
+        if flow.commands in seen:
+            continue
+        seen.add(flow.commands)
+        deduped.append(flow)
+        if len(deduped) >= limit:
+            break
+    return family, reason, deduped
+
+
+def append_type_guided_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "case",
+        "family",
+        "labels",
+        "reason",
+        "flow_name",
+        "flow_commands",
+        "area",
+        "delay",
+        "adp",
+        "equivalent",
+        "improved",
+        "selected",
+        "status",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
+def select_objective_guided_flows(max_per_objective: int) -> list[tuple[str, PostFlow]]:
+    selected: list[tuple[str, PostFlow]] = []
+    seen: set[str] = set()
+    for objective in ("area", "delay", "balanced"):
+        for flow in OBJECTIVE_GUIDED_FLOW_LIBRARY[objective][:max_per_objective]:
+            if flow.commands in seen:
+                continue
+            seen.add(flow.commands)
+            selected.append((objective, flow))
+    return selected
+
+
+def append_objective_guided_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "case",
+        "objective",
+        "flow_name",
+        "flow_commands",
+        "area",
+        "delay",
+        "adp",
+        "equivalent",
+        "improved",
+        "selected",
+        "status",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
 def is_equivalent(abc: Path, truth: Path, aig: Path, timeout: int, root: Path) -> bool:
     output = run_abc(abc, f"read_truth -xf {abc_path(truth, root)}; st; &get; &cec -t {abc_path(aig, root)}", timeout, root)
     return "Networks are equivalent" in output
@@ -1651,6 +1828,217 @@ def run_mockturtle_structural_case(
     else:
         print(f"[{case}] mockturtle structural kept current ADP {base_adp}")
     return rows
+
+
+def run_type_guided_refine_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    max_flows: int,
+) -> tuple[list[dict[str, object]], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        raise RuntimeError(f"missing existing AIG: {source}")
+    tmp = logs / "tmp_type_guided" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    best_area, best_delay, best_adp = base_area, base_delay, base_adp
+    best_aig: Path | None = source
+    fingerprint = fingerprint_case(truth)
+    family, reason, flows = select_type_guided_flows(fingerprint, base_area, base_delay, base_adp, max_flows)
+    labels = "|".join(fingerprint.labels)
+    rows: list[dict[str, object]] = []
+    deadline = time.monotonic() + timeout_per_case
+
+    for index, flow in enumerate(flows):
+        remaining = max(1, int(deadline - time.monotonic()))
+        if remaining <= 1:
+            rows.append(
+                {
+                    "case": case,
+                    "family": family,
+                    "labels": labels,
+                    "reason": reason,
+                    "flow_name": flow.name,
+                    "flow_commands": flow.commands,
+                    "equivalent": 0,
+                    "improved": 0,
+                    "selected": 0,
+                    "status": "TIMEOUT",
+                }
+            )
+            break
+        candidate_aig = tmp / f"{case}_{index:02d}_{flow.name}.aig"
+        row: dict[str, object] = {
+            "case": case,
+            "family": family,
+            "labels": labels,
+            "reason": reason,
+            "flow_name": flow.name,
+            "flow_commands": flow.commands,
+            "equivalent": 0,
+            "improved": 0,
+            "selected": 0,
+            "status": "ERROR",
+        }
+        try:
+            polish_aig(abc, source, flow, candidate_aig, min(remaining, 120), root)
+            equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+            row["equivalent"] = int(equivalent)
+            if equivalent:
+                area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                improved = adp < best_adp
+                row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "status": "OK"})
+                if improved:
+                    best_area, best_delay, best_adp = area, delay, adp
+                    best_aig = candidate_aig
+            else:
+                row["status"] = "NOT_EQUIV"
+        except subprocess.TimeoutExpired:
+            row["status"] = "TIMEOUT"
+        except Exception:
+            row["status"] = "ERROR"
+        rows.append(row)
+
+    selected_row: dict[str, object] | None = None
+    if best_aig is not None and best_aig != source and best_adp < base_adp:
+        shutil.copyfile(best_aig, source)
+        for row in rows:
+            if row.get("adp") == best_adp:
+                row["selected"] = 1
+                selected_row = row
+                break
+
+    append_type_guided_csv(logs / "type_guided_refine.csv", rows)
+    if best_adp < base_adp:
+        flow_name = selected_row.get("flow_name", "type_guided") if selected_row else "type_guided"
+        print(f"[{case}] {family} improved ADP {base_adp} -> {best_adp} via {flow_name}")
+    else:
+        print(f"[{case}] {family} kept current ADP {base_adp}")
+
+    summary = CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best_area,
+        best_delay=best_delay,
+        best_adp=best_adp,
+        improvement_ratio=base_adp / best_adp if best_adp else 0.0,
+        selected_method=f"type_guided/{family}",
+    )
+    return rows, summary
+
+
+def run_objective_guided_refine_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    max_per_objective: int,
+) -> tuple[list[dict[str, object]], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        raise RuntimeError(f"missing existing AIG: {source}")
+    tmp = logs / "tmp_objective_guided" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    best_area, best_delay, best_adp = base_area, base_delay, base_adp
+    best_aig: Path | None = source
+    rows: list[dict[str, object]] = []
+    deadline = time.monotonic() + timeout_per_case
+
+    for index, (objective, flow) in enumerate(select_objective_guided_flows(max_per_objective)):
+        remaining = max(1, int(deadline - time.monotonic()))
+        if remaining <= 1:
+            rows.append(
+                {
+                    "case": case,
+                    "objective": objective,
+                    "flow_name": flow.name,
+                    "flow_commands": flow.commands,
+                    "equivalent": 0,
+                    "improved": 0,
+                    "selected": 0,
+                    "status": "TIMEOUT",
+                }
+            )
+            break
+
+        candidate_aig = tmp / f"{case}_{index:02d}_{flow.name}.aig"
+        row: dict[str, object] = {
+            "case": case,
+            "objective": objective,
+            "flow_name": flow.name,
+            "flow_commands": flow.commands,
+            "equivalent": 0,
+            "improved": 0,
+            "selected": 0,
+            "status": "ERROR",
+        }
+        try:
+            polish_aig(abc, source, flow, candidate_aig, min(remaining, 150), root)
+            equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+            row["equivalent"] = int(equivalent)
+            if equivalent:
+                area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                improved = adp < best_adp
+                row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "status": "OK"})
+                if improved:
+                    best_area, best_delay, best_adp = area, delay, adp
+                    best_aig = candidate_aig
+            else:
+                row["status"] = "NOT_EQUIV"
+        except subprocess.TimeoutExpired:
+            row["status"] = "TIMEOUT"
+        except Exception:
+            row["status"] = "ERROR"
+        rows.append(row)
+
+    selected_row: dict[str, object] | None = None
+    if best_aig is not None and best_aig != source and best_adp < base_adp:
+        shutil.copyfile(best_aig, source)
+        for row in rows:
+            if row.get("adp") == best_adp:
+                row["selected"] = 1
+                selected_row = row
+                break
+
+    append_objective_guided_csv(logs / "objective_guided_refine.csv", rows)
+    if best_adp < base_adp:
+        flow_name = selected_row.get("flow_name", "objective_guided") if selected_row else "objective_guided"
+        objective = selected_row.get("objective", "objective") if selected_row else "objective"
+        print(f"[{case}] {objective} improved ADP {base_adp} -> {best_adp} via {flow_name}")
+    else:
+        print(f"[{case}] objective-guided kept current ADP {base_adp}")
+
+    summary = CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best_area,
+        best_delay=best_delay,
+        best_adp=best_adp,
+        improvement_ratio=base_adp / best_adp if best_adp else 0.0,
+        selected_method="objective_guided",
+    )
+    return rows, summary
 
 
 def optimize_case(
@@ -2769,7 +3157,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
     write_reproduce_recipe(args.logs)
     print(format_reproduce_recipe())
     print("")
-    print("[reproduce] stage 1/11: full hybrid synthesis search")
+    print("[reproduce] stage 1/13: full hybrid synthesis search")
     for case in ALL_CASES:
         print(f"[{case}] optimizing")
         rows, summary = optimize_case(
@@ -2791,7 +3179,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     for range_index, (start_case, end_case) in enumerate(REPRODUCE_ARITHMETIC_RANGES, start=2):
-        print(f"[reproduce] stage {range_index}/11: focused arithmetic range {start_case}-{end_case}")
+        print(f"[reproduce] stage {range_index}/13: focused arithmetic range {start_case}-{end_case}")
         for case in inclusive_cases(start_case, end_case):
             print(f"[{case}] optimizing focused range")
             rows, summary = optimize_case(
@@ -2813,7 +3201,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 5/11: focused divider quotient range "
+        f"[reproduce] stage 5/13: focused divider quotient range "
         f"{REPRODUCE_DIVIDER_RANGE[0]}-{REPRODUCE_DIVIDER_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_DIVIDER_RANGE):
@@ -2837,7 +3225,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 6/11: focused square-root range "
+        f"[reproduce] stage 6/13: focused square-root range "
         f"{REPRODUCE_SQRT_RANGE[0]}-{REPRODUCE_SQRT_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_SQRT_RANGE):
@@ -2860,7 +3248,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 7/11: focused diagnosis-driven rescue cases")
+    print("[reproduce] stage 7/13: focused diagnosis-driven rescue cases")
     for case in REPRODUCE_RESCUE_CASES:
         print(f"[{case}] optimizing focused rescue case")
         rows, summary = optimize_case(
@@ -2883,7 +3271,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 8/11: equivalence-checked polish passes")
+    print("[reproduce] stage 8/13: equivalence-checked polish passes")
     for pass_index in range(REPRODUCE_POLISH_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[polish] pass {pass_index + 1}/{REPRODUCE_POLISH_PASSES}")
@@ -2911,7 +3299,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[polish] converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 9/11: deterministic all-case refinement package")
+    print("[reproduce] stage 9/13: deterministic all-case refinement package")
     for pass_index in range(REPRODUCE_SWEEP_PASSES):
         pass_summaries = []
         print(f"[refine] all cases pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
@@ -2965,7 +3353,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[refine] focused range converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 10/11: final all-case deterministic refinement package")
+    print("[reproduce] stage 10/13: final all-case deterministic refinement package")
     for pass_index in range(REPRODUCE_FINAL_SWEEP_PASSES):
         pass_summaries = []
         print(f"[refine] final all cases pass {pass_index + 1}/{REPRODUCE_FINAL_SWEEP_PASSES}")
@@ -2993,7 +3381,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[refine] final all-case package converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 11/11: fingerprint-guided mockturtle structural resynthesis")
+    print("[reproduce] stage 11/13: fingerprint-guided mockturtle structural resynthesis")
     ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
     if not ok:
         print(f"[mockturtle-structural] unavailable, skipping: {error}")
@@ -3011,6 +3399,34 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 args.mockturtle_structural_bin,
                 None,
             )
+
+    print("[reproduce] stage 12/13: final type-guided circuit-family refinement")
+    for case in ALL_CASES:
+        print(f"[{case}] type-guided refine")
+        run_type_guided_refine_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_TYPE_GUIDED_TIMEOUT,
+            root,
+            REPRODUCE_TYPE_GUIDED_MAX_FLOWS,
+        )
+
+    print("[reproduce] stage 13/13: objective-guided area/delay/balanced refinement")
+    for case in ALL_CASES:
+        print(f"[{case}] objective-guided refine")
+        run_objective_guided_refine_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_OBJECTIVE_GUIDED_TIMEOUT,
+            root,
+            REPRODUCE_OBJECTIVE_MAX_PER_FAMILY,
+        )
 
     write_results_csv(args.logs / "reproduce_candidates.csv", step_results)
     final_results, final_summaries = verify_final_outputs(ALL_CASES, args.abc, args.benchmarks, args.output, root)
@@ -3271,6 +3687,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidates-per-round", type=int, default=10, help="candidate budget per case per round")
     parser.add_argument("--score-aware-optimize", action="store_true", help="allocate candidate budget from coverage and ADP diagnostics")
     parser.add_argument("--total-budget", type=int, default=5000, help="total candidate budget for score-aware scheduling")
+    parser.add_argument("--type-guided-refine", action="store_true", help="classify every selected case and run a fixed type-specific refinement package")
+    parser.add_argument("--type-guided-max-flows", type=int, default=5, help="maximum type-guided ABC refinement flows per case")
+    parser.add_argument("--objective-guided-refine", action="store_true", help="try fixed area-first, delay-first, and balanced refinement packages per case")
+    parser.add_argument("--objective-max-per-family", type=int, default=3, help="maximum objective-guided flows from each objective family")
     return parser.parse_args()
 
 
@@ -3355,6 +3775,60 @@ def main() -> int:
         return 0
     if args.score_aware_optimize:
         run_score_aware_optimize(args, root)
+        return 0
+    if args.type_guided_refine:
+        if args.case:
+            cases = [args.case]
+        elif args.range:
+            start = int(args.range[0].removeprefix("ex"))
+            end = int(args.range[1].removeprefix("ex"))
+            cases = [f"ex{i}" for i in range(start, end + 1)]
+        else:
+            cases = ALL_CASES
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] type-guided refine")
+            _rows, summary = run_type_guided_refine_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                args.type_guided_max_flows,
+            )
+            summaries.append(summary)
+        baseline_total = sum(row.baseline_adp for row in summaries)
+        best_total = sum(row.best_adp for row in summaries)
+        print(f"[type-guided] total ADP {baseline_total} -> {best_total}")
+        return 0
+    if args.objective_guided_refine:
+        if args.case:
+            cases = [args.case]
+        elif args.range:
+            start = int(args.range[0].removeprefix("ex"))
+            end = int(args.range[1].removeprefix("ex"))
+            cases = [f"ex{i}" for i in range(start, end + 1)]
+        else:
+            cases = ALL_CASES
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] objective-guided refine")
+            _rows, summary = run_objective_guided_refine_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                args.objective_max_per_family,
+            )
+            summaries.append(summary)
+        baseline_total = sum(row.baseline_adp for row in summaries)
+        best_total = sum(row.best_adp for row in summaries)
+        print(f"[objective-guided] total ADP {baseline_total} -> {best_total}")
         return 0
     if args.mockturtle_structural or args.mockturtle_case:
         ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)

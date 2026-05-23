@@ -705,3 +705,146 @@ bash student/reproduce_best.sh
   still uses the old helper internally, but the user-facing flow now makes clear
   that these are fixed, seeded, reproducible candidate packages rather than
   random command sweeps.
+
+### Final type-guided circuit-family refinement
+
+- Added `--type-guided-refine`, which revisits every case instead of ranking
+  only by total ADP.
+- Each case is fingerprinted first, then assigned to one fixed refinement
+  family:
+
+```text
+xor_affine
+threshold_majority
+mux_shannon
+arithmetic
+small_template
+general
+```
+
+- Each family has a small hand-curated ABC package.  Examples:
+  low-`K` mapping for threshold/majority-like functions, `dchoice/ifraig` and
+  higher-`K` decomposition for mux/Shannon-like functions, GIA `&mfs`/
+  `&compress3rs` for arithmetic-like functions, and compact rewrite/resub
+  flows for small-template logic.
+- Added the type-guided refinement stage to `--reproduce-best` after
+  mockturtle structural resynthesis.
+- Full pass command used for the latest result:
+
+```bash
+python3 student/flow_optimizer.py --type-guided-refine --type-guided-max-flows 5 --timeout-per-case 120
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+```
+
+- Representative accepted improvements:
+
+```text
+ex200: 60588 -> 60010
+ex209: 10740 -> 10470
+ex220: 221100 -> 219177
+ex229: 74917 -> 73036
+ex241: 50201 -> 48603
+ex254: 54264 -> 51600
+ex264: 21736 -> 21166
+ex270: 3784 -> 3674
+ex291: 91962 -> 90000
+ex299: 2727672 -> 2724432
+```
+
+### Current verified result after type-guided refinement
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11439516
+```
+
+Compared with `11458971`, the type-guided stage reduced total ADP by `19455`.
+Compared with the pre-structural-template result of `13871409`, the current
+total ADP is lower by `2431893`.
+
+### Independent-source type-guided candidate selection
+
+- Changed the type-guided refinement loop so every family-specific flow starts
+  from the same current output AIG instead of chaining candidates sequentially.
+  This prevents an early small rewrite from destroying the structure needed by a
+  later, more suitable circuit-family flow.
+- Expanded the `general` family package with deterministic structural GIA
+  candidates:
+
+```text
+&sopb -C 16 -R 1
+&dsd
+&b -d -s
+&resyn3; &mfs; &compress3rs; &resyn3rs; &compress3rs
+```
+
+- Increased the reproducible type-guided package to eight flows per case.  The
+  package still visits every case, checks every candidate with ABC, and accepts
+  only equivalent lower-ADP outputs.
+- Tested ABC `&rrr` SAT resubstitution on the largest bottlenecks, but it was
+  too slow/unstable for the deterministic reproduction path and was not added.
+- Representative accepted improvements:
+
+```text
+ex207: 770712 -> 741382
+ex220: 219177 -> 218988
+ex221: 133620 -> 133240
+ex252: 242688 -> 238556
+ex283: 52750 -> 52248
+ex292: 113240 -> 110142
+ex293: 169974 -> 162298
+ex298: 542220 -> 542010
+```
+
+### Current verified result after independent-source type-guided refinement
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11363459
+```
+
+Compared with `11439516`, this refinement reduced total ADP by `76057`.
+
+### Objective-guided area/delay/balanced refinement
+
+- Added `--objective-guided-refine`, which gives every selected case three
+  independent optimization families:
+
+```text
+area-first
+delay-first
+balanced ADP
+```
+
+- Each flow starts from the current output AIG, so area-priority and
+  delay-priority candidates compete fairly instead of being chained together.
+- Added this objective-guided pass as the final stage of `--reproduce-best`.
+- Full pass command used for the latest result:
+
+```bash
+python3 student/flow_optimizer.py --objective-guided-refine --objective-max-per-family 3 --timeout-per-case 180
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+```
+
+- Representative accepted improvements:
+
+```text
+ex200: 60010 -> 59687
+ex207: 741382 -> 738530
+ex221: 133240 -> 132640
+ex234: 18620 -> 17850
+ex252: 238556 -> 235497
+ex253: 8820 -> 8316
+ex268: 9936 -> 9712
+ex292: 110142 -> 108342
+ex298: 542010 -> 541023
+```
+
+### Current verified result after objective-guided refinement
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11347482
+```
+
+Compared with `11363459`, this refinement reduced total ADP by `15977`.
