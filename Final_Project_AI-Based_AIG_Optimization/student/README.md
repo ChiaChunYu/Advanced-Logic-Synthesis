@@ -74,30 +74,33 @@ python3 evaluate.py
 Run the current best reproducible flow:
 
 ```bash
-python3 student/flow_optimizer.py --reproduce-best
+bash student/reproduce_best.sh
 ```
 
-This single command expands to the deterministic sequence below, then verifies
-all 100 final outputs and rewrites `student/logs/results.csv` plus
-`student/logs/summary.csv`:
+This is the preferred one-command reproduction entry point.  It runs the fixed
+deterministic recipe, verifies all 100 final outputs, and rewrites
+`student/logs/results.csv`, `student/logs/summary.csv`, and
+`student/logs/reproduce_recipe.txt`.
 
 ```bash
-python3 student/flow_optimizer.py --all --max-candidates 48 --seed 42
-python3 student/flow_optimizer.py --range ex255 ex259 --max-candidates 80 --no-ga
-python3 student/flow_optimizer.py --range ex260 ex264 --max-candidates 80 --no-ga
-python3 student/flow_optimizer.py --range ex265 ex269 --max-candidates 80 --no-ga
-python3 student/flow_optimizer.py --range ex270 ex274 --max-candidates 80 --no-ga
-python3 student/flow_optimizer.py --range ex275 ex279 --max-candidates 80 --no-ga
-python3 student/flow_optimizer.py --case ex252 --max-candidates 120 --timeout-per-case 240 --seed 99 --try-complement --history-guided-ga --polish-after-synthesis
-python3 student/flow_optimizer.py --all --polish-existing --polish-passes 30
-python3 student/flow_optimizer.py --all --sweep-existing --sweep-passes 3 --timeout-per-case 180
-python3 student/flow_optimizer.py --range ex200 ex207 --sweep-existing --sweep-passes 3 --timeout-per-case 180
-python3 student/flow_optimizer.py --mockturtle-structural --timeout-per-case 45
-python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+python3 student/flow_optimizer.py --show-reproduce-recipe
 ```
 
+The recipe is fixed, not a random command sweep:
+
+- all-case hybrid synthesis with seed `42`
+- focused arithmetic template ranges
+- focused divider and square-root template ranges
+- diagnosis-driven rescue for known sensitive cases
+- equivalence-checked polish packages
+- deterministic all-case refinement packages
+- fingerprint-guided mockturtle structural resynthesis
+
+The old experimental subcommands are still available for research, but the
+submission flow should use `bash student/reproduce_best.sh`.
+
 For the largest arithmetic-template gains, the following focused ranges are
-included in the current best flow and are also useful during experimentation:
+included in the current best recipe and are also useful during experimentation:
 
 ```bash
 python3 student/flow_optimizer.py --range ex255 ex259 --max-candidates 80 --no-ga
@@ -169,7 +172,7 @@ python3 student/flow_optimizer.py --all --report-stats
 Reproduce the current best result with one command:
 
 ```bash
-python3 student/flow_optimizer.py --reproduce-best
+bash student/reproduce_best.sh
 ```
 
 Generate diagnosis reports for deciding the next optimization direction:

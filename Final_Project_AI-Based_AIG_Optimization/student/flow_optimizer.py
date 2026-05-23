@@ -187,6 +187,62 @@ REPRODUCE_SWEEP_PASSES = 3
 REPRODUCE_FINAL_SWEEP_PASSES = 3
 REPRODUCE_FRONT_RANGE = ("ex200", "ex207")
 REPRODUCE_MOCKTURTLE_STRUCTURAL_TIMEOUT = 45
+REPRODUCE_RECIPE = [
+    (
+        "1",
+        "all_case_hybrid_synthesis",
+        "Run the hybrid initial generators and fixed ABC post-flow portfolio on every case.",
+        f"all cases, max_candidates={REPRODUCE_MAIN_MAX_CANDIDATES}, seed={REPRODUCE_SEED}",
+    ),
+    (
+        "2-4",
+        "arithmetic_template_ranges",
+        "Revisit exact multiplier/square arithmetic ranges with deterministic template-heavy candidates.",
+        ", ".join(f"{start}-{end}" for start, end in REPRODUCE_ARITHMETIC_RANGES),
+    ),
+    (
+        "5",
+        "divider_template_range",
+        "Revisit exact unsigned divider quotient candidates.",
+        f"{REPRODUCE_DIVIDER_RANGE[0]}-{REPRODUCE_DIVIDER_RANGE[1]}",
+    ),
+    (
+        "6",
+        "sqrt_template_range",
+        "Revisit exact integer square-root candidates.",
+        f"{REPRODUCE_SQRT_RANGE[0]}-{REPRODUCE_SQRT_RANGE[1]}",
+    ),
+    (
+        "7",
+        "diagnosis_rescue",
+        "Run bounded rescue on known diagnosis-sensitive cases using complement and history-guided GA.",
+        ", ".join(REPRODUCE_RESCUE_CASES),
+    ),
+    (
+        "8",
+        "equivalence_checked_polish",
+        "Run fixed deterministic ABC cleanup packages on existing equivalent outputs.",
+        f"{REPRODUCE_POLISH_PASSES} passes, stops early on convergence",
+    ),
+    (
+        "9",
+        "all_case_refinement_package",
+        "Run a fixed all-case ABC/GIA refinement package.  This is deterministic, not a random sweep.",
+        f"{REPRODUCE_SWEEP_PASSES} passes, stops early on convergence",
+    ),
+    (
+        "10",
+        "final_all_case_refinement_package",
+        "Run the final fixed all-case refinement package for convergence.",
+        f"{REPRODUCE_FINAL_SWEEP_PASSES} passes, stops early on convergence",
+    ),
+    (
+        "11",
+        "fingerprint_guided_mockturtle_structural",
+        "Select at most two mockturtle structural modes per case from Boolean fingerprints, then ABC-polish and verify.",
+        f"timeout_per_case={REPRODUCE_MOCKTURTLE_STRUCTURAL_TIMEOUT}",
+    ),
+]
 
 
 def split_commands(commands: str) -> list[str]:
@@ -229,6 +285,36 @@ def crossover_flow(left: list[str], right: list[str], rng: random.Random) -> lis
     if child and child[-1] != "balance":
         child.append("balance")
     return child or [rng.choice(GA_COMMAND_POOL), "balance"]
+
+
+def format_reproduce_recipe() -> str:
+    lines = [
+        "Deterministic reproduce-best pipeline",
+        "",
+        "One-command entry point:",
+        "  python3 student/flow_optimizer.py --reproduce-best --abc student/abc --benchmarks benchmarks --output output",
+        "",
+        "Stages:",
+    ]
+    for stage_id, name, description, parameters in REPRODUCE_RECIPE:
+        lines.append(f"{stage_id}. {name}")
+        lines.append(f"   {description}")
+        lines.append(f"   Parameters: {parameters}")
+    lines.extend(
+        [
+            "",
+            "Safety contract:",
+            "- Every replacement candidate is checked by ABC against the original truth table.",
+            "- A candidate can overwrite output/exNNN.aig only when it is equivalent and has lower ADP.",
+            "- Random-looking components use fixed seeds; the final refinement packages are fixed command sets.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def write_reproduce_recipe(logs: Path) -> None:
+    logs.mkdir(parents=True, exist_ok=True)
+    (logs / "reproduce_recipe.txt").write_text(format_reproduce_recipe() + "\n", encoding="utf-8")
 
 
 def make_ga_flows(case: str, seed: int, count: int) -> list[PostFlow]:
@@ -2680,6 +2766,9 @@ def verify_final_outputs(
 
 def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[CandidateResult], list[CaseSummary]]:
     step_results: list[CandidateResult] = []
+    write_reproduce_recipe(args.logs)
+    print(format_reproduce_recipe())
+    print("")
     print("[reproduce] stage 1/11: full hybrid synthesis search")
     for case in ALL_CASES:
         print(f"[{case}] optimizing")
@@ -2822,10 +2911,10 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[polish] converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 9/11: deterministic sweep passes")
+    print("[reproduce] stage 9/11: deterministic all-case refinement package")
     for pass_index in range(REPRODUCE_SWEEP_PASSES):
         pass_summaries = []
-        print(f"[sweep] all cases pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
+        print(f"[refine] all cases pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
         for case in ALL_CASES:
             print(f"[{case}] sweeping existing output")
             rows, summary = sweep_existing_case(
@@ -2845,15 +2934,15 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
         baseline_total = sum(row.baseline_adp for row in pass_summaries)
         best_total = sum(row.best_adp for row in pass_summaries)
-        print(f"[sweep] all cases pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        print(f"[refine] all cases pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
-            print("[sweep] converged: no pass-level ADP improvement")
+            print("[refine] converged: no pass-level ADP improvement")
             break
 
     front_cases = inclusive_cases(*REPRODUCE_FRONT_RANGE)
     for pass_index in range(REPRODUCE_SWEEP_PASSES):
         pass_summaries = []
-        print(f"[sweep] focused {REPRODUCE_FRONT_RANGE[0]}-{REPRODUCE_FRONT_RANGE[1]} pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
+        print(f"[refine] focused {REPRODUCE_FRONT_RANGE[0]}-{REPRODUCE_FRONT_RANGE[1]} pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
         for case in front_cases:
             print(f"[{case}] sweeping existing output")
             rows, summary = sweep_existing_case(
@@ -2871,15 +2960,15 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
         baseline_total = sum(row.baseline_adp for row in pass_summaries)
         best_total = sum(row.best_adp for row in pass_summaries)
-        print(f"[sweep] focused pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        print(f"[refine] focused pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
-            print("[sweep] focused range converged: no pass-level ADP improvement")
+            print("[refine] focused range converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 10/11: final all-case convergence sweeps")
+    print("[reproduce] stage 10/11: final all-case deterministic refinement package")
     for pass_index in range(REPRODUCE_FINAL_SWEEP_PASSES):
         pass_summaries = []
-        print(f"[sweep] final all cases pass {pass_index + 1}/{REPRODUCE_FINAL_SWEEP_PASSES}")
+        print(f"[refine] final all cases pass {pass_index + 1}/{REPRODUCE_FINAL_SWEEP_PASSES}")
         for case in ALL_CASES:
             print(f"[{case}] sweeping existing output")
             rows, summary = sweep_existing_case(
@@ -2899,9 +2988,9 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
         baseline_total = sum(row.baseline_adp for row in pass_summaries)
         best_total = sum(row.best_adp for row in pass_summaries)
-        print(f"[sweep] final pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        print(f"[refine] final pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
-            print("[sweep] final all-case sweep converged: no pass-level ADP improvement")
+            print("[refine] final all-case package converged: no pass-level ADP improvement")
             break
 
     print("[reproduce] stage 11/11: fingerprint-guided mockturtle structural resynthesis")
@@ -3138,6 +3227,7 @@ def parse_args() -> argparse.Namespace:
     group.add_argument("--all", action="store_true", help="run ex200 through ex299")
     group.add_argument("--range", nargs=2, metavar=("START", "END"), help="run an inclusive case range")
     group.add_argument("--reproduce-best", action="store_true", help="run the full deterministic best-result workflow")
+    parser.add_argument("--show-reproduce-recipe", action="store_true", help="print the deterministic reproduce-best stage recipe and exit")
     parser.add_argument("--analyze-case", help="print truth-table features and exit")
     parser.add_argument("--classify-case", help="print Boolean fingerprint/classification and exit")
     parser.add_argument("--abc", type=Path, default=Path("student/abc"))
@@ -3187,6 +3277,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     root = Path.cwd()
+    if args.show_reproduce_recipe:
+        print(format_reproduce_recipe())
+        return 0
     if args.analyze_case:
         truth = args.benchmarks / f"{args.analyze_case}.truth"
         table = read_truth(truth)

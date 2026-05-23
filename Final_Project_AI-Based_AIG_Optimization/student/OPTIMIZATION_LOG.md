@@ -685,3 +685,23 @@ Total ADP over equivalent cases: 11458971
 Compared with `11641063`, the structural mockturtle stage reduced total ADP by
 `182092`.  Compared with the pre-structural-template result of `13871409`, the
 current total ADP is lower by `2412438`.
+
+### Reproducible one-command pipeline cleanup
+
+- Added `student/reproduce_best.sh` as the main one-command reproduction entry
+  point:
+
+```bash
+bash student/reproduce_best.sh
+```
+
+- Added `--show-reproduce-recipe` to print the deterministic stage recipe
+  without generating AIGs.
+- `--reproduce-best` now writes `student/logs/reproduce_recipe.txt` at the
+  beginning of a run, so the exact stage order is recorded next to the result
+  CSVs.
+- Renamed console messages for the final fixed ABC/GIA packages from generic
+  "sweep" language to "deterministic refinement package" language.  The code
+  still uses the old helper internally, but the user-facing flow now makes clear
+  that these are fixed, seeded, reproducible candidate packages rather than
+  random command sweeps.
