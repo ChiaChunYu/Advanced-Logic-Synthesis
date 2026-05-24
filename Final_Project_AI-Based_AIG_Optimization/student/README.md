@@ -97,6 +97,8 @@ The recipe is fixed, not a random command sweep:
 - fingerprint-guided mockturtle structural resynthesis
 - final type-guided circuit-family refinement for every case
 - final objective-guided area/delay/balanced refinement for every case
+- micro-guided per-case refinement for small and stubborn cases
+- small-case targeted refinement for compact or low-ADP functions
 
 The old experimental subcommands are still available for research, but the
 submission flow should use `bash student/reproduce_best.sh`.
@@ -259,6 +261,22 @@ candidate with the lowest ADP:
 python3 student/flow_optimizer.py --objective-guided-refine --objective-max-per-family 3 --timeout-per-case 180
 ```
 
+Run the micro-guided refinement package.  This pass still visits every case,
+but adds low-cost flows that are especially useful for small circuits and
+near-converged cases:
+
+```bash
+python3 student/flow_optimizer.py --micro-guided-refine --micro-max-flows 4 --timeout-per-case 90
+```
+
+Run the small-case targeted refinement package.  This scans all selected cases,
+but only spends the small-flow package on compact outputs, so low-ADP cases also
+receive dedicated coverage:
+
+```bash
+python3 student/flow_optimizer.py --small-case-refine --small-max-flows 5 --small-area-threshold 2500 --small-adp-threshold 50000 --timeout-per-case 35
+```
+
 ## Outputs
 
 Final selected AIGs are written to:
@@ -309,6 +327,8 @@ student/logs/score_aware_summary.csv
 student/logs/mockturtle_candidates.csv
 student/logs/type_guided_refine.csv
 student/logs/objective_guided_refine.csv
+student/logs/micro_guided_refine.csv
+student/logs/small_case_refine.csv
 ```
 
 ## Verified Result
@@ -323,7 +343,7 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 11347482
+Total ADP over equivalent cases: 11237685
 ```
 
 ## Notes

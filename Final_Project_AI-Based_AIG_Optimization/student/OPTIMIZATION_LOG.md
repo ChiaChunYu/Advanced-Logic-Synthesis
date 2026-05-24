@@ -33,6 +33,8 @@ It connects each commit to the optimizer milestone it introduced.
 | working tree | 2026-05-22 | `feat: add focused ex252 rescue stage` | Used diagnosis-guided rescue to find a better ex252 BDD/Shannon candidate and added the reproducible stage to `--reproduce-best`. |
 | working tree | 2026-05-22 | `feat: add fair per-case coverage scheduler` | Added case coverage reporting plus complete-all, round-robin, and score-aware schedulers so small cases are not starved by high-ADP rescue. |
 | working tree | 2026-05-23 | `feat: add fingerprint-guided mockturtle structural resynthesis` | Added a CMake-built mockturtle structural engine, fingerprint-to-mode mapping, ABC-polished mockturtle candidates, and a final `--reproduce-best` structural stage. |
+| working tree | 2026-05-24 | `feat: add micro-guided per-case ADP refinement` | Added a low-cost all-case refinement stage for small and near-converged cases using guarded resubstitution, low-K mapping, renode, and collapse/factorization flows. |
+| working tree | 2026-05-24 | `feat: refine compact cases with small-circuit flows` | Added a small-case-only refinement package that targets compact or low-ADP outputs with low-K mapping, SOP/factorization, fraiging, and GIA SOP balancing. |
 
 ## 2026-05-21
 
@@ -848,3 +850,107 @@ Total ADP over equivalent cases: 11347482
 ```
 
 Compared with `11363459`, this refinement reduced total ADP by `15977`.
+
+### Micro-guided per-case refinement
+
+- Added `--micro-guided-refine`, a deterministic pass that still visits every
+  case instead of ranking only by total ADP.
+- The pass starts from the current equivalent output and tries a small set of
+  low-cost flows:
+
+```text
+micro_resub4
+micro_if3
+micro_renode
+micro_collapse_sop
+```
+
+- `micro_collapse_sop` is guarded so it is only used on compact or low-ADP
+  functions, where collapsing and refactoring can help without exploding
+  runtime.
+- Added this micro-guided pass as the final stage of `--reproduce-best`, after
+  the objective-guided area/delay/balanced pass.
+- Full pass command used for the latest result:
+
+```bash
+python3 student/flow_optimizer.py --micro-guided-refine --micro-max-flows 4 --timeout-per-case 90
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+```
+
+- Representative accepted improvements:
+
+```text
+ex200: 59687 -> 59534
+ex202: 61472 -> 60367
+ex203: 81092 -> 78508
+ex204: 25584 -> 24976
+ex205: 76684 -> 75392
+ex206: 639870 -> 629244
+ex222: 217413 -> 214641
+ex223: 225036 -> 222432
+ex249: 6669 -> 5715
+ex290: 59232 -> 58352
+ex293: 162298 -> 161139
+ex299: 2724432 -> 2723448
+```
+
+### Current verified result after micro-guided refinement
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11294764
+```
+
+Compared with `11347482`, this refinement reduced total ADP by `52718`.
+
+### Small-case targeted refinement
+
+- Added `--small-case-refine`, which scans the requested cases but only spends
+  the small-flow package when the current output is compact enough:
+
+```text
+area <= 2500 or ADP <= 50000
+```
+
+- This was added because optimizing only the total ADP tends to favor large
+  arithmetic cases.  The new pass explicitly gives low-ADP and compact cases
+  another chance with flows that are better suited to small Boolean functions:
+
+```text
+small_if4
+small_fx_dc2
+small_fraig_dc2
+small_if5
+small_gia_sopb
+```
+
+- Full pass command used for the latest result:
+
+```bash
+python3 student/flow_optimizer.py --small-case-refine --small-max-flows 5 --small-area-threshold 2500 --small-adp-threshold 50000 --timeout-per-case 35
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+```
+
+- Representative accepted improvements:
+
+```text
+ex239: 44583 -> 41800
+ex241: 30240 -> 29708
+ex246: 13090 -> 12712
+ex247: 16366 -> 14911
+ex248: 36765 -> 34080
+ex249: 5715 -> 4654
+ex276: 1100 -> 1080
+ex283: 51336 -> 51129
+ex287: 35302 -> 35283
+```
+
+### Current verified result after small-case targeted refinement
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11237685
+```
+
+Compared with `11294764`, this refinement reduced total ADP by `57079` while
+focusing on compact and low-ADP cases.
