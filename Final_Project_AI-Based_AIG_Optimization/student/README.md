@@ -46,8 +46,10 @@ optimization:
   at most two structural modes per case, such as XAG rewriting for XOR-heavy
   logic, MIG rewriting for majority/threshold logic, XMG rewriting for mixed
   arithmetic logic, and AIG resubstitution/functional reduction for general
-  high-area logic.  Each mockturtle candidate is still polished and verified by
-  ABC before it can replace an output.
+  high-area logic.  It also includes structural cut rewriting, don't-care AIG
+  rewriting, XAG multiplicative-complexity reduction, Akers-style MIG cut
+  rewriting, and mixed XMG resubstitution.  Each mockturtle candidate is still
+  polished and verified by ABC before it can replace an output.
 - Pareto frontier tracking for equivalent candidates by area and delay.
 
 Each initial circuit is written as BLIF or generated through ABC, then optimized
@@ -99,6 +101,8 @@ The recipe is fixed, not a random command sweep:
 - final objective-guided area/delay/balanced refinement for every case
 - micro-guided per-case refinement for small and stubborn cases
 - small-case targeted refinement for compact or low-ADP functions
+- final advanced mockturtle structural refinement on the fully refined outputs
+- final deterministic micro-guided fixed-point convergence passes
 
 The old experimental subcommands are still available for research, but the
 submission flow should use `bash student/reproduce_best.sh`.
@@ -132,6 +136,119 @@ Run precise Boolean fingerprinting/classification without generating an AIG:
 ```bash
 python3 student/flow_optimizer.py --classify-case ex200
 ```
+
+Write exact, proof-based function matches without generating an AIG:
+
+```bash
+python3 student/flow_optimizer.py --exact-function-report --case ex200
+python3 student/flow_optimizer.py --exact-function-report --all
+python3 student/flow_optimizer.py --exact-match-all
+```
+
+This writes `student/logs/exact_function_matches.csv`.  Matches have
+confidence `1.000` only when the detector checks the complete truth table.
+
+Run exact-match structural generators:
+
+```bash
+python3 student/flow_optimizer.py --specialized-generators --case ex255
+python3 student/flow_optimizer.py --specialized-generators --all --timeout-per-case 120
+python3 student/flow_optimizer.py --specialized-generate --case ex255
+```
+
+This pass uses exact function matches to build structural BLIF candidates such
+as affine/XOR trees, popcount/threshold/sorter structures, adders,
+comparators, multipliers, squares, divider quotients, and integer square-root
+structures.  Every generated candidate is converted by ABC, checked for
+equivalence, measured by ADP, and accepted only if it improves the current
+output.  Logs are written to `student/logs/specialized_generators.csv`.
+
+Run small-support exact/NPN-style rescue:
+
+```bash
+python3 student/flow_optimizer.py --exact-npn-rescue --case ex255 --npn-max-support 8
+python3 student/flow_optimizer.py --exact-npn-rescue --all --npn-max-support 6
+```
+
+This pass generates exact small-support covers when the whole function is small
+enough, then applies a bounded set of reductions.  It writes
+`student/logs/exact_npn_rescue.csv` and only accepts equivalent lower-ADP
+candidates.
+
+Run bounded transduction-inspired expansion/reduction:
+
+```bash
+python3 student/flow_optimizer.py --transduction-rescue --case ex200 --transduction-budget 12 --seed 0
+python3 student/flow_optimizer.py --transduction-rescue --all --transduction-budget 12 --seed 0
+```
+
+This pass wraps existing outputs in safe identities such as
+`(f & g) | (f & ~g)` or `~~f`, then lets ABC reduction try to recover a better
+structure.  It writes `student/logs/transduction_rescue.csv`.
+
+Run generic complement synthesis rescue:
+
+```bash
+python3 student/flow_optimizer.py --complement-rescue --case ex200 --complement-budget 16
+python3 student/flow_optimizer.py --complement-rescue --all --complement-budget 16
+```
+
+This pass synthesizes the complement function through ABC/BDD/SOP/template
+routes, wraps the outputs back to the original polarity, and accepts only
+equivalent lower-ADP candidates.  It writes
+`student/logs/complement_candidates.csv`.
+
+Run the fair contest-style scheduler:
+
+```bash
+python3 student/flow_optimizer.py --contest-optimize --seed 0 --time-budget 3600
+```
+
+This scheduler visits every selected case in staged rounds: exact matching,
+base coverage, complement rescue, specialized generation, mockturtle structural
+resynthesis, exact/NPN rescue, and transduction rescue.  It writes
+`student/logs/contest_optimize_schedule.csv` and refreshes
+`student/logs/case_coverage.csv`.
+
+Run the next deterministic case-fair improvement package:
+
+```bash
+python3 student/flow_optimizer.py --case-fair-next-optimize --all --seed 42 --timeout-per-case 30 --time-budget 3600
+python3 student/flow_optimizer.py --case-fair-next-optimize --case ex200 --timeout-per-case 120 --time-budget 180
+```
+
+This is a single-command follow-up refinement pass for outputs already created
+by the fingerprint/type-guided main pipeline.  To remain practical on all 100
+cases, it reuses those typed outputs instead of recomputing expensive full
+fingerprints, then tries objective-guided, micro-guided, small-case,
+complement, and optional mockturtle structural rescue stages.  Each
+stage still overwrites `output/exNNN.aig` only when ABC proves equivalence and
+the ADP is lower.  It writes `student/logs/case_fair_next_optimize.csv`, then
+refreshes `results.csv`, `summary.csv`, `pareto_candidates.csv`, and
+`final_summary.csv`. `--timeout-per-case` bounds the complete package for one
+case and `--time-budget` bounds the complete invocation; progress is saved
+after each completed case.
+
+Mockturtle is opt-in for this final follow-up pass because its structural mode
+selection repeats fingerprint analysis:
+
+```bash
+python3 student/flow_optimizer.py --case-fair-next-optimize --case ex200 --try-mockturtle --timeout-per-case 120 --time-budget 180
+```
+
+Write or locate the contest plan and refresh final verification logs:
+
+```bash
+python3 student/flow_optimizer.py --write-contest-plan
+python3 student/flow_optimizer.py --verify-final
+python3 student/flow_optimizer.py --write-final-summary
+```
+
+`--verify-final` reads the current `output/exNNN.aig` files, reruns ABC
+equivalence/ADP measurement, and refreshes `student/logs/results.csv`,
+`student/logs/summary.csv`, and `student/logs/pareto_candidates.csv`.
+`--write-final-summary` also writes `student/logs/final_summary.csv` for the
+report.
 
 If your path contains spaces, run from the project root and pass relative paths:
 
@@ -239,6 +356,7 @@ fixed polish set and accepts only equivalent lower-ADP candidates:
 cmake -S student/mockturtle_opt -B student/mockturtle_opt/build
 cmake --build student/mockturtle_opt/build --target mockturtle_opt -j2
 python3 student/flow_optimizer.py --mockturtle-structural --timeout-per-case 45
+python3 student/flow_optimizer.py --mockturtle-structural --mockturtle-max-modes 3 --timeout-per-case 45
 python3 student/flow_optimizer.py --mockturtle-case ex200 --mode xag_xor_heavy --timeout-per-case 120
 ```
 
@@ -297,6 +415,18 @@ The CSV records:
 case, initial_method, flow_name, flow_commands, area, delay, adp, equivalent, selected
 ```
 
+The internal Pareto candidate pool is:
+
+```text
+student/logs/pareto_candidates.csv
+```
+
+It keeps equivalent non-dominated area/delay candidates plus the best
+representative from important source families such as ABC baseline, BDD,
+SOP/POS, complement, arithmetic templates, mockturtle, exact/NPN, and
+transduction-inspired candidates.  The submitted output is still the minimum
+ADP equivalent candidate.
+
 The summary CSV is:
 
 ```text
@@ -320,7 +450,14 @@ student/logs/case_coverage_report.txt
 student/logs/coverage_candidates.csv
 student/logs/rescue_worst_summary.csv
 student/logs/bdd_sifting.csv
+student/logs/exact_function_matches.csv
 student/logs/template_validation.csv
+student/logs/specialized_generators.csv
+student/logs/mockturtle_structural_summary.csv
+student/logs/exact_npn_rescue.csv
+student/logs/transduction_rescue.csv
+student/logs/complement_candidates.csv
+student/logs/contest_optimize_schedule.csv
 student/logs/round_robin_summary.csv
 student/logs/score_aware_schedule.csv
 student/logs/score_aware_summary.csv
@@ -329,6 +466,8 @@ student/logs/type_guided_refine.csv
 student/logs/objective_guided_refine.csv
 student/logs/micro_guided_refine.csv
 student/logs/small_case_refine.csv
+student/logs/final_summary.csv
+student/logs/case_fair_next_optimize.csv
 ```
 
 ## Verified Result
@@ -343,7 +482,15 @@ Result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 11237685
+Total ADP over equivalent cases: 11106756
+```
+
+The one-command reproduction recipe now includes the deterministic
+micro-guided convergence passes that produced the latest post-phase
+improvements:
+
+```bash
+bash student/reproduce_best.sh
 ```
 
 ## Notes

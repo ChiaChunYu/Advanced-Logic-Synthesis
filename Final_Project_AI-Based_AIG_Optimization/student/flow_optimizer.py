@@ -22,6 +22,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from boolean_fingerprint import append_classification_csv, fingerprint_case, format_fingerprint
+from exact_function_recognition import (
+    ExactFunctionMatch,
+    exact_matches_for_truth,
+    format_exact_matches,
+    write_exact_function_matches_csv,
+)
 
 
 PS_RE = re.compile(r"and\s*=\s*(\d+)\s+lev\s*=\s*(\d+)")
@@ -67,6 +73,22 @@ class CandidateResult:
     selected: bool = False
     status: str = "ERROR"
     aig: Path | None = None
+
+
+@dataclass(frozen=True)
+class ParetoCandidate:
+    case: str
+    candidate_id: str
+    source_method: str
+    area: int
+    delay: int
+    adp: int
+    is_pareto: bool
+    is_min_area: bool
+    is_min_delay: bool
+    is_min_adp: bool
+    selected_final: bool
+    file_path: str
 
 
 @dataclass(frozen=True)
@@ -146,11 +168,37 @@ STRUCTURAL_MOCKTURTLE_MODES = [
     "roundtrip_xag",
     "roundtrip_mig",
     "roundtrip_xmg",
+    "cut4_aig_xag_npn",
+    "cut5_aig_xag_npn_depth",
+    "dc_aig_rewrite",
+    "xag_area_minmc",
+    "mig_akers_cut4",
+    "xmg_mixed_resub",
 ]
 MOCKTURTLE_STRUCTURAL_POLISH_FLOWS = [
     PostFlow("mt_dc2_balance", "strash; dc2; balance"),
     PostFlow("mt_rw_rf_dc2", "strash; rewrite -z; refactor -z; dc2"),
     PostFlow("mt_balance_rw_balance", "strash; balance; rewrite; balance"),
+]
+
+SPECIALIZED_GENERATOR_FLOWS = [
+    PostFlow("specialized_identity", ""),
+    PostFlow("specialized_adp", "strash; rewrite; refactor; dc2; rewrite -z; refactor -z; balance"),
+    PostFlow("specialized_area", "strash; dc2; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("specialized_delay", "strash; balance; rewrite; balance; refactor; balance"),
+]
+
+EXACT_NPN_RESCUE_FLOWS = [
+    PostFlow("npn_identity", ""),
+    PostFlow("npn_area", "strash; collapse; sop; fx; strash; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("npn_cut", "strash; dch; if -K 5; strash; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("npn_resub", "strash; resub -K 4; balance; rewrite -z; refactor -z; dc2; balance"),
+]
+
+TRANSDUCTION_REDUCTION_FLOWS = [
+    PostFlow("trans_fraig_dc2", "strash; fraig; dc2; balance"),
+    PostFlow("trans_rw_rf_dc2", "strash; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("trans_resub_rewrite", "strash; resub -K 6; rewrite -z; refactor -z; dc2; balance"),
 ]
 
 TYPE_GUIDED_FLOW_LIBRARY = {
@@ -269,12 +317,15 @@ REPRODUCE_SWEEP_PASSES = 3
 REPRODUCE_FINAL_SWEEP_PASSES = 3
 REPRODUCE_FRONT_RANGE = ("ex200", "ex207")
 REPRODUCE_MOCKTURTLE_STRUCTURAL_TIMEOUT = 45
+REPRODUCE_FINAL_ADVANCED_MOCKTURTLE_TIMEOUT = 90
 REPRODUCE_TYPE_GUIDED_TIMEOUT = 180
 REPRODUCE_TYPE_GUIDED_MAX_FLOWS = 8
 REPRODUCE_OBJECTIVE_GUIDED_TIMEOUT = 180
 REPRODUCE_OBJECTIVE_MAX_PER_FAMILY = 3
 REPRODUCE_MICRO_GUIDED_TIMEOUT = 90
 REPRODUCE_MICRO_MAX_FLOWS = 4
+REPRODUCE_MICRO_CONVERGENCE_PASSES = 6
+REPRODUCE_MICRO_CONVERGENCE_TIMEOUT = 20
 REPRODUCE_SMALL_CASE_TIMEOUT = 35
 REPRODUCE_SMALL_CASE_MAX_FLOWS = 5
 REPRODUCE_SMALL_CASE_AREA_THRESHOLD = 2500
@@ -359,6 +410,22 @@ REPRODUCE_RECIPE = [
         (
             f"max_flows={REPRODUCE_SMALL_CASE_MAX_FLOWS}, timeout_per_case={REPRODUCE_SMALL_CASE_TIMEOUT}, "
             f"area_threshold={REPRODUCE_SMALL_CASE_AREA_THRESHOLD}, adp_threshold={REPRODUCE_SMALL_CASE_ADP_THRESHOLD}"
+        ),
+    ),
+    (
+        "16",
+        "final_advanced_mockturtle_structural",
+        "Re-run fingerprint-selected advanced mockturtle structural modes on the final refined outputs.",
+        f"timeout_per_case={REPRODUCE_FINAL_ADVANCED_MOCKTURTLE_TIMEOUT}",
+    ),
+    (
+        "17",
+        "micro_guided_fixed_point_convergence",
+        "Repeat the deterministic low-cost resubstitution/remapping package after all structural generators have settled.",
+        (
+            f"max_passes={REPRODUCE_MICRO_CONVERGENCE_PASSES}, "
+            f"max_flows={REPRODUCE_MICRO_MAX_FLOWS}, "
+            f"timeout_per_case={REPRODUCE_MICRO_CONVERGENCE_TIMEOUT}, stops early on convergence"
         ),
     ),
 ]
@@ -574,6 +641,10 @@ def minterm_cube(index: int, table: TruthTable) -> tuple[int, ...]:
     return tuple(1 if (index >> (table.num_inputs - 1 - var)) & 1 else 0 for var in table.active_vars)
 
 
+def minterm_cube_for_support(index: int, table: TruthTable, support: list[int]) -> tuple[int, ...]:
+    return tuple(1 if (index >> (table.num_inputs - 1 - var)) & 1 else 0 for var in support)
+
+
 def collect_cubes(table: TruthTable, output_index: int, value: int, limit: int) -> list[tuple[int, ...]] | None:
     cubes: list[tuple[int, ...]] = []
     seen: set[tuple[int, ...]] = set()
@@ -581,6 +652,43 @@ def collect_cubes(table: TruthTable, output_index: int, value: int, limit: int) 
         if bit != value:
             continue
         cube = minterm_cube(index, table)
+        if cube in seen:
+            continue
+        seen.add(cube)
+        cubes.append(cube)
+        if len(cubes) > limit:
+            return None
+    return cubes
+
+
+def output_support(table: TruthTable, output_index: int) -> list[int]:
+    bits = table.outputs[output_index]
+    support: list[int] = []
+    for var in range(table.num_inputs):
+        differs = False
+        for index in range(table.num_minterms):
+            other = index ^ (1 << (table.num_inputs - 1 - var))
+            if index < other and bits[index] != bits[other]:
+                differs = True
+                break
+        if differs:
+            support.append(var)
+    return support
+
+
+def collect_support_cubes(
+    table: TruthTable,
+    output_index: int,
+    support: list[int],
+    value: int,
+    limit: int,
+) -> list[tuple[int, ...]] | None:
+    cubes: list[tuple[int, ...]] = []
+    seen: set[tuple[int, ...]] = set()
+    for index, bit in enumerate(table.outputs[output_index]):
+        if bit != value:
+            continue
+        cube = minterm_cube_for_support(index, table, support)
         if cube in seen:
             continue
         seen.add(cube)
@@ -795,6 +903,46 @@ def factor_cover(builder: BlifBuilder, active_vars: list[int], cubes: list[tuple
         return builder.emit_or(factored, rest)
 
     return factor(cubes, tuple(range(active_count)))
+
+
+def write_small_support_exact_blif(
+    path: Path,
+    model: str,
+    table: TruthTable,
+    max_support: int,
+) -> tuple[bool, int, str]:
+    if len(table.active_vars) <= max_support:
+        covers = collect_all_output_covers(table, 1, 1 << max_support)
+        if covers is None:
+            return False, len(table.active_vars), f"whole-function cover exceeded {1 << max_support}"
+        write_cover_blif(path, model, table, covers, invert=False)
+        return True, len(table.active_vars), "whole-function support synthesized from exact cover"
+
+    supports = [output_support(table, output_index) for output_index in range(table.num_outputs)]
+    largest_support = max((len(support) for support in supports), default=0)
+    if largest_support > max_support:
+        return False, largest_support, f"largest output support {largest_support} exceeds limit {max_support}"
+
+    builder = BlifBuilder(table, model)
+    outputs: list[str] = []
+    cover_limit = 1 << max_support
+    for output_index, support in enumerate(supports):
+        bits = table.outputs[output_index]
+        on_count = sum(bits)
+        if on_count == 0:
+            outputs.append(builder.const0)
+            continue
+        if on_count == len(bits):
+            outputs.append(builder.const1)
+            continue
+        value = 1 if on_count <= len(bits) - on_count else 0
+        cubes = collect_support_cubes(table, output_index, support, value, cover_limit)
+        if cubes is None:
+            return False, largest_support, f"output y{output_index} cover exceeded {cover_limit}"
+        signal = factor_cover(builder, support, cubes)
+        outputs.append(signal if value == 1 else builder.emit_not(signal))
+    builder.finish(outputs, path)
+    return True, largest_support, "all outputs synthesized from exact small-support covers"
 
 
 def write_factored_sop_blif(path: Path, model: str, table: TruthTable, covers: list[list[tuple[int, ...]]]) -> None:
@@ -1288,6 +1436,347 @@ def write_unsigned_sqrt_blif(path: Path, model: str, table: TruthTable, radicand
     builder.finish(root[: table.num_outputs], path)
 
 
+def parse_var_order(text: str) -> list[int]:
+    return [int(match) for match in re.findall(r"x(\d+)", text)]
+
+
+def parse_binary_orders(text: str) -> tuple[list[int], list[int]] | None:
+    match = re.search(r"a=\[([^\]]*)\];b=\[([^\]]*)\]", text)
+    if not match:
+        return None
+    return parse_var_order(match.group(1)), parse_var_order(match.group(2))
+
+
+def exact_matches_by_output(matches: list[ExactFunctionMatch]) -> dict[int, list[ExactFunctionMatch]]:
+    grouped: dict[int, list[ExactFunctionMatch]] = defaultdict(list)
+    for match in matches:
+        grouped[match.output_index].append(match)
+    return grouped
+
+
+def choose_exact_match(
+    grouped: dict[int, list[ExactFunctionMatch]],
+    output_index: int,
+    function_types: set[str],
+) -> ExactFunctionMatch | None:
+    for match in grouped.get(output_index, []):
+        if match.function_type in function_types:
+            return match
+    return None
+
+
+def exact_constant_signal(builder: BlifBuilder, match: ExactFunctionMatch | None) -> str | None:
+    if match is None:
+        return None
+    if match.function_type == "constant_zero":
+        return builder.const0
+    if match.function_type == "constant_one":
+        return builder.const1
+    return None
+
+
+def emit_xor_tree(builder: BlifBuilder, signals: list[str], invert: bool = False) -> str:
+    result = builder.const0
+    for signal in signals:
+        result = builder.emit_xor(result, signal)
+    return builder.emit_not(result) if invert else result
+
+
+def emit_and_tree(builder: BlifBuilder, signals: list[str]) -> str:
+    if not signals:
+        return builder.const1
+    result = signals[0]
+    for signal in signals[1:]:
+        result = builder.emit_and(result, signal)
+    return result
+
+
+def emit_unsigned_equal(builder: BlifBuilder, left: list[str], right: list[str]) -> str:
+    assert len(left) == len(right)
+    equal_terms = [builder.emit_not(builder.emit_xor(l_bit, r_bit)) for l_bit, r_bit in zip(left, right)]
+    return emit_and_tree(builder, equal_terms)
+
+
+def emit_constant_bits(builder: BlifBuilder, value: int, width: int) -> list[str]:
+    return [builder.const1 if (value >> bit) & 1 else builder.const0 for bit in range(width)]
+
+
+def emit_popcount_bits(builder: BlifBuilder, input_signals: list[str], width: int) -> list[str]:
+    columns: list[list[str]] = [[] for _ in range(width + len(input_signals) + 2)]
+    columns[0] = input_signals[:]
+    columns = reduce_weighted_columns(builder, columns)
+    return emit_column_outputs(builder, columns, width)
+
+
+def emit_unsigned_equal_constant(builder: BlifBuilder, bits: list[str], value: int) -> str:
+    if value < 0 or value >= (1 << len(bits)):
+        return builder.const0
+    return emit_unsigned_equal(builder, bits, emit_constant_bits(builder, value, len(bits)))
+
+
+def emit_unsigned_ge_constant(builder: BlifBuilder, bits: list[str], value: int) -> str:
+    if value <= 0:
+        return builder.const1
+    if value >= (1 << len(bits)):
+        return builder.const0
+    return emit_unsigned_greater_equal(builder, bits, emit_constant_bits(builder, value, len(bits)))
+
+
+def emit_unsigned_add_bits(builder: BlifBuilder, a_order: list[int], b_order: list[int]) -> list[str]:
+    outputs: list[str] = []
+    carry = builder.const0
+    for a_var, b_var in zip(a_order, b_order):
+        a_bit = f"x{a_var}"
+        b_bit = f"x{b_var}"
+        if carry == builder.const0:
+            summation, carry = builder.emit_half_adder(a_bit, b_bit)
+        else:
+            summation, carry = builder.emit_full_adder(a_bit, b_bit, carry)
+        outputs.append(summation)
+    outputs.append(carry)
+    return outputs
+
+
+def emit_comparator_outputs(builder: BlifBuilder, a_order: list[int], b_order: list[int]) -> dict[str, str]:
+    a_bits = [f"x{var}" for var in a_order]
+    b_bits = [f"x{var}" for var in b_order]
+    ge = emit_unsigned_greater_equal(builder, a_bits, b_bits)
+    eq = emit_unsigned_equal(builder, a_bits, b_bits)
+    gt = builder.emit_and(ge, builder.emit_not(eq))
+    lt = builder.emit_not(ge)
+    return {
+        "comparator_gt": gt,
+        "comparator_ge": ge,
+        "comparator_eq": eq,
+        "comparator_lt": lt,
+    }
+
+
+def affine_signal_from_match(builder: BlifBuilder, match: ExactFunctionMatch) -> str | None:
+    if match.function_type == "constant_zero":
+        return builder.const0
+    if match.function_type == "constant_one":
+        return builder.const1
+    if match.function_type == "buffer":
+        order = parse_var_order(match.input_order)
+        return f"x{order[0]}" if order else None
+    if match.function_type == "inverter":
+        order = parse_var_order(match.input_order)
+        return builder.emit_not(f"x{order[0]}") if order else None
+    if match.function_type in {"affine", "parity"}:
+        order = parse_var_order(match.input_order)
+        const_match = re.search(r"constant=(\d+)", match.evidence)
+        invert = bool(const_match and const_match.group(1) == "1")
+        return emit_xor_tree(builder, [f"x{var}" for var in order], invert=invert)
+    return None
+
+
+def write_exact_affine_blif(path: Path, model: str, table: TruthTable, matches: list[ExactFunctionMatch]) -> bool:
+    grouped = exact_matches_by_output(matches)
+    builder = BlifBuilder(table, model)
+    outputs: list[str] = []
+    for output_index in range(table.num_outputs):
+        match = choose_exact_match(
+            grouped,
+            output_index,
+            {"constant_zero", "constant_one", "buffer", "inverter", "affine", "parity"},
+        )
+        if match is None:
+            return False
+        signal = affine_signal_from_match(builder, match)
+        if signal is None:
+            return False
+        outputs.append(signal)
+    builder.finish(outputs, path)
+    return True
+
+
+def write_exact_popcount_blif(path: Path, model: str, table: TruthTable, matches: list[ExactFunctionMatch]) -> bool:
+    grouped = exact_matches_by_output(matches)
+    pop_matches = [match for match in matches if match.function_type == "popcount_output_bit"]
+    if not pop_matches:
+        return False
+    order = parse_var_order(pop_matches[0].input_order)
+    if not order or any(parse_var_order(match.input_order) != order for match in pop_matches):
+        return False
+    max_bit = max(int(match.bit_index) for match in pop_matches if match.bit_index.isdigit())
+    builder = BlifBuilder(table, model)
+    pop_bits = emit_popcount_bits(builder, [f"x{var}" for var in order], max(table.num_outputs, max_bit + 1))
+    outputs: list[str] = []
+    for output_index in range(table.num_outputs):
+        constant = exact_constant_signal(
+            builder,
+            choose_exact_match(grouped, output_index, {"constant_zero", "constant_one"}),
+        )
+        if constant is not None:
+            outputs.append(constant)
+            continue
+        match = choose_exact_match(grouped, output_index, {"popcount_output_bit"})
+        if match is None or parse_var_order(match.input_order) != order or not match.bit_index.isdigit():
+            return False
+        outputs.append(pop_bits[int(match.bit_index)] if int(match.bit_index) < len(pop_bits) else builder.const0)
+    builder.finish(outputs, path)
+    return True
+
+
+def write_exact_threshold_blif(path: Path, model: str, table: TruthTable, matches: list[ExactFunctionMatch]) -> bool:
+    grouped = exact_matches_by_output(matches)
+    threshold_types = {"majority", "threshold_ge", "threshold_le", "exact_k", "one_hot_exactly_one", "sorter_output_bit"}
+    threshold_matches = [match for match in matches if match.function_type in threshold_types]
+    if not threshold_matches:
+        return False
+    order = parse_var_order(threshold_matches[0].input_order)
+    if not order or any(parse_var_order(match.input_order) != order for match in threshold_matches):
+        return False
+    width = max(1, math.ceil(math.log2(len(order) + 1)))
+    builder = BlifBuilder(table, model)
+    pop_bits = emit_popcount_bits(builder, [f"x{var}" for var in order], width)
+    outputs: list[str] = []
+    for output_index in range(table.num_outputs):
+        constant = exact_constant_signal(
+            builder,
+            choose_exact_match(grouped, output_index, {"constant_zero", "constant_one"}),
+        )
+        if constant is not None:
+            outputs.append(constant)
+            continue
+        match = choose_exact_match(grouped, output_index, threshold_types)
+        if match is None or parse_var_order(match.input_order) != order:
+            return False
+        if match.function_type in {"majority", "threshold_ge"}:
+            outputs.append(emit_unsigned_ge_constant(builder, pop_bits, int(match.bit_index)))
+        elif match.function_type == "threshold_le":
+            outputs.append(builder.emit_not(emit_unsigned_ge_constant(builder, pop_bits, int(match.bit_index) + 1)))
+        elif match.function_type in {"exact_k", "one_hot_exactly_one"}:
+            outputs.append(emit_unsigned_equal_constant(builder, pop_bits, int(match.bit_index or "1")))
+        elif match.function_type == "sorter_output_bit":
+            outputs.append(emit_unsigned_ge_constant(builder, pop_bits, int(match.bit_index) + 1))
+    builder.finish(outputs, path)
+    return True
+
+
+def write_exact_adder_blif(path: Path, model: str, table: TruthTable, matches: list[ExactFunctionMatch]) -> bool:
+    grouped = exact_matches_by_output(matches)
+    adder_matches = [match for match in matches if match.function_type in {"adder_sum_bit", "adder_carry_bit"}]
+    if not adder_matches:
+        return False
+    orders = parse_binary_orders(adder_matches[0].input_order)
+    if orders is None:
+        return False
+    a_order, b_order = orders
+    if any(parse_binary_orders(match.input_order) != orders for match in adder_matches):
+        return False
+    builder = BlifBuilder(table, model)
+    add_bits = emit_unsigned_add_bits(builder, a_order, b_order)
+    outputs: list[str] = []
+    for output_index in range(table.num_outputs):
+        constant = exact_constant_signal(
+            builder,
+            choose_exact_match(grouped, output_index, {"constant_zero", "constant_one"}),
+        )
+        if constant is not None:
+            outputs.append(constant)
+            continue
+        match = choose_exact_match(grouped, output_index, {"adder_sum_bit", "adder_carry_bit"})
+        if match is None or parse_binary_orders(match.input_order) != orders or not match.bit_index.isdigit():
+            return False
+        bit_index = int(match.bit_index)
+        outputs.append(add_bits[bit_index] if bit_index < len(add_bits) else builder.const0)
+    builder.finish(outputs, path)
+    return True
+
+
+def write_exact_comparator_blif(path: Path, model: str, table: TruthTable, matches: list[ExactFunctionMatch]) -> bool:
+    grouped = exact_matches_by_output(matches)
+    comparator_types = {"comparator_gt", "comparator_ge", "comparator_eq", "comparator_lt"}
+    comparator_matches = [match for match in matches if match.function_type in comparator_types]
+    if not comparator_matches:
+        return False
+    orders = parse_binary_orders(comparator_matches[0].input_order)
+    if orders is None:
+        return False
+    if any(parse_binary_orders(match.input_order) != orders for match in comparator_matches):
+        return False
+    builder = BlifBuilder(table, model)
+    comp = emit_comparator_outputs(builder, *orders)
+    outputs: list[str] = []
+    for output_index in range(table.num_outputs):
+        constant = exact_constant_signal(
+            builder,
+            choose_exact_match(grouped, output_index, {"constant_zero", "constant_one"}),
+        )
+        if constant is not None:
+            outputs.append(constant)
+            continue
+        match = choose_exact_match(grouped, output_index, comparator_types)
+        if match is None or parse_binary_orders(match.input_order) != orders:
+            return False
+        outputs.append(comp[match.function_type])
+    builder.finish(outputs, path)
+    return True
+
+
+def make_exact_specialized_candidates(
+    case: str,
+    table: TruthTable,
+    truth: Path,
+    tmp: Path,
+    exact_max_inputs: int,
+) -> list[tuple[InitialCandidate, str, str]]:
+    matches = exact_matches_for_truth(truth, max_expensive_inputs=exact_max_inputs)
+    candidates: list[tuple[InitialCandidate, str, str]] = []
+
+    def add_blif(generator: str, function_type: str, writer) -> None:
+        blif = tmp / f"{case}_{generator}.blif"
+        try:
+            if writer(blif, f"{case}_{generator}", table, matches):
+                candidates.append((InitialCandidate(f"specialized_{generator}", "blif", blif), function_type, generator))
+        except Exception:
+            if blif.exists():
+                blif.unlink()
+
+    add_blif("exact_affine", "affine_parity", write_exact_affine_blif)
+    add_blif("exact_popcount", "popcount", write_exact_popcount_blif)
+    add_blif("exact_threshold", "threshold_exact_k_sorter", write_exact_threshold_blif)
+    add_blif("exact_adder", "adder", write_exact_adder_blif)
+    add_blif("exact_comparator", "comparator", write_exact_comparator_blif)
+
+    square_order = detect_unsigned_square(table)
+    if square_order is not None:
+        blif = tmp / f"{case}_exact_unsigned_square.blif"
+        write_unsigned_square_blif(blif, f"{case}_exact_unsigned_square", table, square_order)
+        candidates.append((InitialCandidate("specialized_exact_unsigned_square", "blif", blif), "square", "exact_unsigned_square"))
+
+    multiplier_orders = detect_unsigned_multiplier(table)
+    if multiplier_orders is not None:
+        a_order, b_order = multiplier_orders
+        blif = tmp / f"{case}_exact_unsigned_multiplier.blif"
+        write_unsigned_multiplier_blif(blif, f"{case}_exact_unsigned_multiplier", table, a_order, b_order)
+        candidates.append((InitialCandidate("specialized_exact_unsigned_multiplier", "blif", blif), "unsigned_multiplier", "exact_unsigned_multiplier"))
+
+    signed_multiplier_orders = detect_signed_multiplier(table)
+    if signed_multiplier_orders is not None:
+        a_order, b_order = signed_multiplier_orders
+        blif = tmp / f"{case}_exact_signed_multiplier.blif"
+        write_signed_multiplier_blif(blif, f"{case}_exact_signed_multiplier", table, a_order, b_order)
+        candidates.append((InitialCandidate("specialized_exact_signed_multiplier", "blif", blif), "signed_multiplier", "exact_signed_multiplier"))
+
+    divider_orders = detect_unsigned_divider_quotient(table)
+    if divider_orders is not None:
+        divisor_order, dividend_order = divider_orders
+        blif = tmp / f"{case}_exact_unsigned_divider_quotient.blif"
+        write_unsigned_divider_quotient_blif(blif, f"{case}_exact_unsigned_divider_quotient", table, divisor_order, dividend_order)
+        candidates.append((InitialCandidate("specialized_exact_unsigned_divider_quotient", "blif", blif), "divider_quotient", "exact_unsigned_divider_quotient"))
+
+    sqrt_order = detect_unsigned_sqrt(table)
+    if sqrt_order is not None:
+        blif = tmp / f"{case}_exact_unsigned_sqrt.blif"
+        write_unsigned_sqrt_blif(blif, f"{case}_exact_unsigned_sqrt", table, sqrt_order)
+        candidates.append((InitialCandidate("specialized_exact_unsigned_sqrt", "blif", blif), "integer_sqrt", "exact_unsigned_sqrt"))
+
+    return candidates
+
+
 def make_initial_candidates(
     case: str,
     table: TruthTable,
@@ -1383,6 +1872,49 @@ def make_initial_candidates(
     return candidates
 
 
+def complement_method_name(method: str) -> str:
+    if method == "abc_truth":
+        return "abc_truth_complement"
+    if "bdd" in method:
+        return f"bdd_complement_{method}"
+    if "factored" in method:
+        return "factored_sop_complement"
+    if "sop" in method:
+        return "sop_complement"
+    if "pos" in method:
+        return "pos_complement"
+    if "template" in method or "exact" in method:
+        return f"specialized_complement_{method}"
+    return f"{method}_complement"
+
+
+def make_complement_initial_candidates(
+    case: str,
+    table: TruthTable,
+    tmp: Path,
+    seed: int,
+    use_bdd: bool,
+) -> list[InitialCandidate]:
+    tmp.mkdir(parents=True, exist_ok=True)
+    complement_truth = tmp / f"{case}_complement.truth"
+    write_complement_truth(complement_truth, table)
+    complement_table = read_truth(complement_truth)
+    candidates = [InitialCandidate("abc_truth_complement", "truth_complement", complement_truth)]
+    generated_dir = tmp / "generated"
+    for initial in make_initial_candidates(f"{case}_complement", complement_table, generated_dir, seed, use_bdd, False):
+        if initial.method == "abc_truth" or initial.source_path is None:
+            continue
+        if initial.source_kind == "blif":
+            candidates.append(
+                InitialCandidate(
+                    complement_method_name(initial.method),
+                    "blif_complement",
+                    initial.source_path,
+                )
+            )
+    return candidates
+
+
 def choose_candidate_pairs(
     initials: list[InitialCandidate],
     flows: list[PostFlow],
@@ -1436,6 +1968,140 @@ def pareto_frontier(results: list[CandidateResult]) -> list[CandidateResult]:
     return frontier
 
 
+def candidate_source_method(row: CandidateResult) -> str:
+    text = f"{row.initial_method}/{row.flow_name}".lower()
+    if row.initial_method == "abc_truth" and row.flow_name == "identity":
+        return "abc_baseline"
+    if "bdd" in text or "shannon" in text:
+        return "bdd_shannon"
+    if any(token in text for token in ("sop", "pos", "factored")):
+        return "sop_pos_factored"
+    if "complement" in text:
+        return "complement"
+    if any(token in text for token in ("template", "multiplier", "square", "divider", "sqrt", "adder", "carry")):
+        return "arithmetic_template"
+    if "npn" in text or "exact" in text:
+        return "exact_npn"
+    if "mockturtle" in text and "xag" in text:
+        return "mockturtle_xag"
+    if "mockturtle" in text and "mig" in text:
+        return "mockturtle_mig"
+    if "transduction" in text or "dontcare" in text or "dc_" in text:
+        return "transduction_inspired"
+    if "existing_output" in text:
+        return "existing_output"
+    if "post_polish" in text:
+        return "post_polish"
+    return "other"
+
+
+def build_pareto_candidates(results: list[CandidateResult]) -> list[ParetoCandidate]:
+    equivalent = [
+        row
+        for row in results
+        if row.equivalent and row.area is not None and row.delay is not None and row.adp is not None
+    ]
+    if not equivalent:
+        return []
+
+    rows: list[ParetoCandidate] = []
+    counters: dict[str, int] = defaultdict(int)
+    by_case: dict[str, list[CandidateResult]] = defaultdict(list)
+    for row in equivalent:
+        by_case[row.case].append(row)
+
+    for case in sorted(by_case):
+        case_rows = by_case[case]
+        frontier = set(id(row) for row in pareto_frontier(case_rows))
+        min_area = min(row.area for row in case_rows if row.area is not None)
+        min_delay = min(row.delay for row in case_rows if row.delay is not None)
+        min_adp = min(row.adp for row in case_rows if row.adp is not None)
+        keep_ids: set[int] = set(frontier)
+
+        for source in [
+            "abc_baseline",
+            "bdd_shannon",
+            "sop_pos_factored",
+            "complement",
+            "arithmetic_template",
+            "mockturtle_xag",
+            "mockturtle_mig",
+            "exact_npn",
+            "transduction_inspired",
+        ]:
+            source_rows = [row for row in case_rows if candidate_source_method(row) == source]
+            if source_rows:
+                keep_ids.add(id(min(source_rows, key=lambda row: row.adp if row.adp is not None else 10**30)))
+
+        for row in case_rows:
+            if row.selected:
+                keep_ids.add(id(row))
+
+        for row in case_rows:
+            if id(row) not in keep_ids:
+                continue
+            counters[row.case] += 1
+            assert row.area is not None and row.delay is not None and row.adp is not None
+            rows.append(
+                ParetoCandidate(
+                    case=row.case,
+                    candidate_id=f"{row.case}_pareto_{counters[row.case]:04d}",
+                    source_method=candidate_source_method(row),
+                    area=row.area,
+                    delay=row.delay,
+                    adp=row.adp,
+                    is_pareto=id(row) in frontier,
+                    is_min_area=row.area == min_area,
+                    is_min_delay=row.delay == min_delay,
+                    is_min_adp=row.adp == min_adp,
+                    selected_final=row.selected,
+                    file_path=str(row.aig or ""),
+                )
+            )
+    return rows
+
+
+def write_pareto_candidates_csv(path: Path, results: list[CandidateResult]) -> None:
+    rows = build_pareto_candidates(results)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(
+            handle,
+            fieldnames=[
+                "case",
+                "candidate_id",
+                "source_method",
+                "area",
+                "delay",
+                "adp",
+                "is_pareto",
+                "is_min_area",
+                "is_min_delay",
+                "is_min_adp",
+                "selected_final",
+                "file_path",
+            ],
+        )
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(
+                {
+                    "case": row.case,
+                    "candidate_id": row.candidate_id,
+                    "source_method": row.source_method,
+                    "area": row.area,
+                    "delay": row.delay,
+                    "adp": row.adp,
+                    "is_pareto": int(row.is_pareto),
+                    "is_min_area": int(row.is_min_area),
+                    "is_min_delay": int(row.is_min_delay),
+                    "is_min_adp": int(row.is_min_adp),
+                    "selected_final": int(row.selected_final),
+                    "file_path": row.file_path,
+                }
+            )
+
+
 def synthesize(
     abc: Path,
     truth: Path,
@@ -1459,6 +2125,19 @@ def synthesize(
         raw_blif = out_aig.with_suffix(".complement_raw.blif")
         wrapped_blif = out_aig.with_suffix(".complement_wrapped.blif")
         command = f"read_truth -xf {abc_path(initial.source_path, root)}; {commands}; write_blif {abc_path(raw_blif, root)}"
+        run_abc(abc, command, timeout, root)
+        wrap_inverted_blif_outputs(raw_blif, wrapped_blif)
+        command = f"read_blif {abc_path(wrapped_blif, root)}; strash; write_aiger -s {abc_path(out_aig, root)}"
+        run_abc(abc, command, timeout, root)
+        return
+    elif initial.source_kind == "blif_complement":
+        assert initial.source_path is not None
+        commands = "strash"
+        if flow.commands:
+            commands += "; " + flow.commands
+        raw_blif = out_aig.with_suffix(".blif_complement_raw.blif")
+        wrapped_blif = out_aig.with_suffix(".blif_complement_wrapped.blif")
+        command = f"read_blif {abc_path(initial.source_path, root)}; {commands}; write_blif {abc_path(raw_blif, root)}"
         run_abc(abc, command, timeout, root)
         wrap_inverted_blif_outputs(raw_blif, wrapped_blif)
         command = f"read_blif {abc_path(wrapped_blif, root)}; strash; write_aiger -s {abc_path(out_aig, root)}"
@@ -1585,14 +2264,46 @@ def append_mockturtle_candidates_csv(path: Path, rows: list[dict[str, object]]) 
             writer.writerow({name: row.get(name, "") for name in fieldnames})
 
 
+def append_mockturtle_structural_summary_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "case",
+        "base_area",
+        "base_delay",
+        "base_adp",
+        "best_area",
+        "best_delay",
+        "best_adp",
+        "improvement",
+        "modes",
+        "exact_types",
+        "generated",
+        "equivalent",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
+def exact_type_hints_for_mockturtle(matches: list[ExactFunctionMatch]) -> set[str]:
+    return {match.function_type for match in matches}
+
+
 def select_structural_mockturtle_modes(
     fingerprint,
     current_area: int,
     current_delay: int,
     current_adp: int,
+    exact_types: set[str] | None = None,
+    max_modes: int = 2,
 ) -> tuple[list[str], str]:
     labels = set(fingerprint.labels)
     strategy = fingerprint.recommended_strategy
+    exact_types = exact_types or set()
     modes: list[str] = []
     reasons: list[str] = []
 
@@ -1601,24 +2312,67 @@ def select_structural_mockturtle_modes(
             modes.append(mode)
             reasons.append(reason)
 
-    if labels & {"parity", "affine", "adder_sum_like"} or "xor" in strategy:
+    if (
+        labels & {"parity", "affine", "adder_sum_like"}
+        or exact_types & {"affine", "parity", "adder_sum_bit", "popcount_output_bit"}
+        or "xor" in strategy
+    ):
+        add("xag_area_minmc", "XOR/affine fingerprint")
         add("xag_xor_heavy", "XOR/affine fingerprint")
-    if labels & {"majority", "threshold_positive", "threshold_negative", "exact_k", "carry_like", "symmetric", "symmetric_variable_groups"}:
+    if (
+        labels & {"majority", "threshold_positive", "threshold_negative", "exact_k", "carry_like", "symmetric", "symmetric_variable_groups"}
+        or exact_types
+        & {
+            "majority",
+            "threshold_ge",
+            "threshold_le",
+            "exact_k",
+            "one_hot_exactly_one",
+            "sorter_output_bit",
+            "comparator_gt",
+            "comparator_ge",
+            "comparator_eq",
+            "comparator_lt",
+            "adder_carry_bit",
+        }
+    ):
+        add("mig_akers_cut4", "majority/threshold/symmetric fingerprint")
         add("mig_majority", "majority/threshold/symmetric fingerprint")
-    if labels & {"carry_like", "adder_sum_like"} or "arithmetic" in strategy:
+    if (
+        labels & {"carry_like", "adder_sum_like"}
+        or exact_types
+        & {
+            "adder_sum_bit",
+            "adder_carry_bit",
+            "unsigned_multiplier_output_bit",
+            "signed_multiplier_output_bit",
+            "square_output_bit",
+            "divider_quotient_bit",
+            "divider_remainder_bit",
+            "modulo_remainder_like",
+            "integer_sqrt_output_bit",
+        }
+        or "arithmetic" in strategy
+    ):
+        add("xmg_mixed_resub", "mixed XOR/majority arithmetic fingerprint")
         add("xmg_arithmetic", "mixed XOR/majority arithmetic fingerprint")
     if "mux_like" in labels:
+        add("cut5_aig_xag_npn_depth", "mux-like Shannon structure")
         add("roundtrip_xag", "mux-like Shannon structure")
     if current_area >= 20000 or current_adp >= 300000:
+        add("dc_aig_rewrite", "large structural AIG after previous synthesis")
         add("aig_resub", "large structural AIG after previous synthesis")
-    if current_delay >= 18 and len(modes) < 2:
+    if current_area <= 2500 or current_adp <= 50000:
+        add("cut4_aig_xag_npn", "compact small-case cut rewriting")
+    target_modes = max(1, max_modes)
+    if current_delay >= 18 and len(modes) < target_modes:
         add("roundtrip_mig", "delay-oriented majority roundtrip")
-    if len(modes) < 2:
+    if len(modes) < target_modes:
         add("functional_reduction", "redundancy-oriented fallback")
-    if len(modes) < 2:
+    if len(modes) < target_modes:
         add("roundtrip_xag", "XAG roundtrip fallback")
 
-    return modes[:2], "; ".join(reasons[:2])
+    return modes[:target_modes], "; ".join(reasons[:target_modes])
 
 
 def type_guided_family(fingerprint) -> tuple[str, str]:
@@ -1783,6 +2537,108 @@ def append_small_case_csv(path: Path, rows: list[dict[str, object]]) -> None:
             writer.writerow({name: row.get(name, "") for name in fieldnames})
 
 
+def append_specialized_generators_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "case",
+        "function_type",
+        "generator",
+        "flow_name",
+        "flow_commands",
+        "generated",
+        "equivalent",
+        "area",
+        "delay",
+        "adp",
+        "improved",
+        "selected",
+        "error",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
+def append_exact_npn_rescue_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "case",
+        "support_size",
+        "method",
+        "template",
+        "flow_name",
+        "generated",
+        "equivalent",
+        "area",
+        "delay",
+        "adp",
+        "improved",
+        "selected",
+        "error",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
+def append_transduction_rescue_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "case",
+        "expansion_type",
+        "g_source",
+        "flow_name",
+        "generated",
+        "equivalent",
+        "area",
+        "delay",
+        "adp",
+        "improved",
+        "selected",
+        "error",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
+def append_complement_candidates_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "case",
+        "method",
+        "flow_name",
+        "flow_commands",
+        "generated",
+        "equivalent",
+        "area",
+        "delay",
+        "adp",
+        "improved",
+        "selected",
+        "error",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
 def is_equivalent(abc: Path, truth: Path, aig: Path, timeout: int, root: Path) -> bool:
     output = run_abc(abc, f"read_truth -xf {abc_path(truth, root)}; st; &get; &cec -t {abc_path(aig, root)}", timeout, root)
     return "Networks are equivalent" in output
@@ -1798,6 +2654,611 @@ def measure_adp(abc: Path, aig: Path, timeout: int, root: Path) -> tuple[int, in
     return area, delay, area * delay
 
 
+def npn_template_summary_for_case(truth: Path) -> str:
+    try:
+        fingerprint = fingerprint_case(truth)
+    except Exception:
+        return ""
+    counts = Counter(output.npn_template for output in fingerprint.outputs if output.npn_template)
+    if not counts:
+        return ""
+    return ";".join(f"{name}:{count}" for name, count in sorted(counts.items()))
+
+
+def run_exact_npn_rescue_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    max_support: int,
+    max_flows: int,
+) -> tuple[list[dict[str, object]], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    table = read_truth(truth)
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        raise RuntimeError(f"missing existing AIG: {source}")
+
+    tmp = logs / "tmp_exact_npn" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    best_area, best_delay, best_adp = base_area, base_delay, base_adp
+    best_aig: Path | None = None
+    rows: list[dict[str, object]] = []
+    template = npn_template_summary_for_case(truth)
+
+    blif = tmp / f"{case}_small_support_exact.blif"
+    generated, support_size, message = write_small_support_exact_blif(
+        blif,
+        f"{case}_small_support_exact",
+        table,
+        max_support,
+    )
+    if not generated:
+        rows.append(
+            {
+                "case": case,
+                "support_size": support_size,
+                "method": "small_support_factored_truth",
+                "template": template,
+                "generated": 0,
+                "equivalent": 0,
+                "improved": 0,
+                "selected": 0,
+                "error": message,
+            }
+        )
+        append_exact_npn_rescue_csv(logs / "exact_npn_rescue.csv", rows)
+        print(f"[{case}] exact/NPN skipped: {message}")
+        return rows, CaseSummary(
+            case=case,
+            baseline_area=base_area,
+            baseline_delay=base_delay,
+            baseline_adp=base_adp,
+            best_area=base_area,
+            best_delay=base_delay,
+            best_adp=base_adp,
+            improvement_ratio=1.0,
+            selected_method="exact_npn_skipped",
+        )
+
+    initial = InitialCandidate("exact_npn_small_support", "blif", blif)
+    deadline = time.monotonic() + timeout_per_case
+    for flow in EXACT_NPN_RESCUE_FLOWS[:max(1, max_flows)]:
+        remaining = max(1, int(deadline - time.monotonic()))
+        row: dict[str, object] = {
+            "case": case,
+            "support_size": support_size,
+            "method": "small_support_factored_truth",
+            "template": template,
+            "flow_name": flow.name,
+            "generated": 1,
+            "equivalent": 0,
+            "improved": 0,
+            "selected": 0,
+        }
+        if remaining <= 1:
+            row["error"] = "case timeout before synthesis"
+            rows.append(row)
+            break
+        candidate_aig = tmp / f"{case}_{flow.name}.aig"
+        try:
+            synthesize(abc, truth, initial, flow, candidate_aig, min(remaining, 120), root)
+            equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+            row["equivalent"] = int(equivalent)
+            if equivalent:
+                area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                improved = adp < best_adp
+                row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "error": ""})
+                if improved:
+                    best_area, best_delay, best_adp = area, delay, adp
+                    best_aig = candidate_aig
+            else:
+                row["error"] = "not equivalent"
+        except subprocess.TimeoutExpired:
+            row["error"] = "timeout"
+        except Exception as exc:
+            row["error"] = str(exc)[:500]
+        rows.append(row)
+
+    selected_row: dict[str, object] | None = None
+    if best_aig is not None and best_adp < base_adp:
+        shutil.copyfile(best_aig, source)
+        for row in rows:
+            if row.get("adp") == best_adp:
+                row["selected"] = 1
+                selected_row = row
+                break
+
+    append_exact_npn_rescue_csv(logs / "exact_npn_rescue.csv", rows)
+    if best_adp < base_adp:
+        flow_name = selected_row.get("flow_name", "exact_npn") if selected_row else "exact_npn"
+        print(f"[{case}] exact/NPN improved ADP {base_adp} -> {best_adp} via {flow_name}")
+    else:
+        print(f"[{case}] exact/NPN kept current ADP {base_adp}")
+
+    return rows, CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best_area,
+        best_delay=best_delay,
+        best_adp=best_adp,
+        improvement_ratio=base_adp / best_adp if best_adp else 0.0,
+        selected_method="exact_npn_rescue" if best_adp < base_adp else "exact_npn_no_improvement",
+    )
+
+
+def transduction_variable_order(table: TruthTable, seed: int, case: str) -> list[int | None]:
+    ranked: list[int | None] = []
+    for var in sorted(range(table.num_inputs), key=lambda item: table.influences[item], reverse=True):
+        if var not in ranked:
+            ranked.append(var)
+        if len([item for item in ranked if item is not None]) >= 3:
+            break
+    for var in sorted(range(table.num_inputs), key=lambda item: table.shannon_scores[item], reverse=True):
+        if var not in ranked:
+            ranked.append(var)
+        if len([item for item in ranked if item is not None]) >= 5:
+            break
+    rng = random.Random(f"{seed}:{case}:transduction")
+    remaining = [var for var in range(table.num_inputs) if var not in ranked]
+    rng.shuffle(remaining)
+    ranked.extend(remaining[:2])
+    ranked.append(None)
+    return ranked
+
+
+def read_blif_interface(path: Path) -> tuple[list[str], list[str]]:
+    input_names: list[str] = []
+    output_names: list[str] = []
+    logical = ""
+    for physical in path.read_text(encoding="ascii", errors="ignore").splitlines():
+        stripped = physical.rstrip()
+        if stripped.endswith("\\"):
+            logical += stripped[:-1] + " "
+            continue
+        line = logical + stripped
+        logical = ""
+        if line.startswith(".inputs "):
+            input_names = line.split()[1:]
+        elif line.startswith(".outputs "):
+            output_names = line.split()[1:]
+    return input_names, output_names
+
+
+def wrap_transduction_blif_outputs(
+    source: Path,
+    target: Path,
+    expansion_type: str,
+    g_index: int | None,
+) -> tuple[bool, str]:
+    lines = source.read_text(encoding="ascii", errors="ignore").splitlines()
+    input_names, output_names = read_blif_interface(source)
+    if not output_names:
+        return False, "cannot find BLIF outputs"
+    if expansion_type != "double_not" and not input_names:
+        return False, "cannot choose g from BLIF without inputs"
+    g_name = "" if g_index is None else input_names[g_index % len(input_names)]
+    new_outputs = [f"td_out{i}" for i in range(len(output_names))]
+    wrapped: list[str] = []
+    inserted = False
+    skip_output_continuation = False
+
+    for line in lines:
+        if skip_output_continuation:
+            skip_output_continuation = line.rstrip().endswith("\\")
+            continue
+        if line.startswith(".outputs "):
+            wrapped.append(".outputs " + " ".join(new_outputs))
+            skip_output_continuation = line.rstrip().endswith("\\")
+            continue
+        if line.startswith(".end"):
+            if expansion_type in {"and_or", "or_and"}:
+                not_g = "td_not_g"
+                wrapped.append(f".names {g_name} {not_g}")
+                wrapped.append("0 1")
+            for index, (old, new) in enumerate(zip(output_names, new_outputs)):
+                prefix = f"td_{index}_{expansion_type}"
+                if expansion_type == "double_not":
+                    inv = f"{prefix}_not"
+                    wrapped.append(f".names {old} {inv}")
+                    wrapped.append("0 1")
+                    wrapped.append(f".names {inv} {new}")
+                    wrapped.append("0 1")
+                elif expansion_type == "and_or":
+                    left = f"{prefix}_and_g"
+                    right = f"{prefix}_and_not_g"
+                    wrapped.append(f".names {old} {g_name} {left}")
+                    wrapped.append("11 1")
+                    wrapped.append(f".names {old} td_not_g {right}")
+                    wrapped.append("11 1")
+                    wrapped.append(f".names {left} {right} {new}")
+                    wrapped.append("1- 1")
+                    wrapped.append("-1 1")
+                elif expansion_type == "or_and":
+                    left = f"{prefix}_or_g"
+                    right = f"{prefix}_or_not_g"
+                    wrapped.append(f".names {old} {g_name} {left}")
+                    wrapped.append("1- 1")
+                    wrapped.append("-1 1")
+                    wrapped.append(f".names {old} td_not_g {right}")
+                    wrapped.append("1- 1")
+                    wrapped.append("-1 1")
+                    wrapped.append(f".names {left} {right} {new}")
+                    wrapped.append("11 1")
+                elif expansion_type == "mux":
+                    wrapped.append(f".names {g_name} {old} {new}")
+                    wrapped.append("01 1")
+                    wrapped.append("11 1")
+                else:
+                    return False, f"unsupported expansion type: {expansion_type}"
+            wrapped.append(".end")
+            inserted = True
+            continue
+        wrapped.append(line)
+
+    if not inserted:
+        return False, "cannot find BLIF .end"
+    target.write_text("\n".join(wrapped) + "\n", encoding="ascii")
+    g_text = "none" if g_index is None else f"{g_name}@{g_index}"
+    return True, g_text
+
+
+def run_transduction_rescue_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    budget: int,
+    seed: int,
+) -> tuple[list[dict[str, object]], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    table = read_truth(truth)
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        raise RuntimeError(f"missing existing AIG: {source}")
+
+    tmp = logs / "tmp_transduction" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    best_area, best_delay, best_adp = base_area, base_delay, base_adp
+    best_aig: Path | None = None
+    rows: list[dict[str, object]] = []
+    raw_blif = tmp / f"{case}_source.blif"
+    run_abc(abc, f"read {abc_path(source, root)}; write_blif {abc_path(raw_blif, root)}", 120, root)
+
+    variables = transduction_variable_order(table, seed, case)
+    expansion_types = ["and_or", "or_and", "mux", "double_not"]
+    tasks: list[tuple[str, int | None, PostFlow]] = []
+    for expansion_type in expansion_types:
+        for variable in variables:
+            if expansion_type == "double_not" and variable is not None:
+                continue
+            if expansion_type != "double_not" and variable is None:
+                continue
+            for flow in TRANSDUCTION_REDUCTION_FLOWS:
+                tasks.append((expansion_type, variable, flow))
+    tasks = tasks[: max(1, budget)]
+    deadline = time.monotonic() + timeout_per_case
+
+    for index, (expansion_type, variable, flow) in enumerate(tasks):
+        remaining = max(1, int(deadline - time.monotonic()))
+        row: dict[str, object] = {
+            "case": case,
+            "expansion_type": expansion_type,
+            "g_source": f"x{variable}" if variable is not None else "none",
+            "flow_name": flow.name,
+            "generated": 0,
+            "equivalent": 0,
+            "improved": 0,
+            "selected": 0,
+        }
+        if remaining <= 1:
+            row["error"] = "case timeout before expansion"
+            rows.append(row)
+            break
+
+        expanded_blif = tmp / f"{case}_{index:02d}_{expansion_type}.blif"
+        ok, g_text = wrap_transduction_blif_outputs(raw_blif, expanded_blif, expansion_type, variable)
+        row["g_source"] = g_text
+        if not ok:
+            row["error"] = g_text
+            rows.append(row)
+            continue
+        row["generated"] = 1
+
+        initial = InitialCandidate(f"transduction_{expansion_type}", "blif", expanded_blif)
+        candidate_aig = tmp / f"{case}_{index:02d}_{expansion_type}_{flow.name}.aig"
+        try:
+            synthesize(abc, truth, initial, flow, candidate_aig, min(remaining, 150), root)
+            equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+            row["equivalent"] = int(equivalent)
+            if equivalent:
+                area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                improved = adp < best_adp
+                row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "error": ""})
+                if improved:
+                    best_area, best_delay, best_adp = area, delay, adp
+                    best_aig = candidate_aig
+            else:
+                row["error"] = "not equivalent"
+        except subprocess.TimeoutExpired:
+            row["error"] = "timeout"
+        except Exception as exc:
+            row["error"] = str(exc)[:500]
+        rows.append(row)
+
+    selected_row: dict[str, object] | None = None
+    if best_aig is not None and best_adp < base_adp:
+        shutil.copyfile(best_aig, source)
+        for row in rows:
+            if row.get("adp") == best_adp:
+                row["selected"] = 1
+                selected_row = row
+                break
+
+    append_transduction_rescue_csv(logs / "transduction_rescue.csv", rows)
+    if best_adp < base_adp:
+        expansion = selected_row.get("expansion_type", "transduction") if selected_row else "transduction"
+        print(f"[{case}] transduction improved ADP {base_adp} -> {best_adp} via {expansion}")
+    else:
+        print(f"[{case}] transduction kept current ADP {base_adp}")
+
+    return rows, CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best_area,
+        best_delay=best_delay,
+        best_adp=best_adp,
+        improvement_ratio=base_adp / best_adp if best_adp else 0.0,
+        selected_method="transduction_rescue" if best_adp < base_adp else "transduction_no_improvement",
+    )
+
+
+def run_complement_rescue_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    seed: int,
+    budget: int,
+    use_bdd: bool,
+) -> tuple[list[dict[str, object]], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    table = read_truth(truth)
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        source.parent.mkdir(parents=True, exist_ok=True)
+        run_abc(abc, f"read_truth -xf {abc_path(truth, root)}; st; write_aiger -s {abc_path(source, root)}", 120, root)
+
+    tmp = logs / "tmp_complement" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    best_area, best_delay, best_adp = base_area, base_delay, base_adp
+    best_aig: Path | None = None
+    rows: list[dict[str, object]] = []
+    deadline = time.monotonic() + timeout_per_case
+
+    initials = make_complement_initial_candidates(case, table, tmp, seed, use_bdd)
+    pairs = choose_candidate_pairs(initials, POST_FLOWS, max(1, budget))
+    if not pairs:
+        rows.append(
+            {
+                "case": case,
+                "method": "none",
+                "generated": 0,
+                "equivalent": 0,
+                "improved": 0,
+                "selected": 0,
+                "error": "no complement candidates generated",
+            }
+        )
+
+    for index, (initial, flow) in enumerate(pairs):
+        remaining = max(1, int(deadline - time.monotonic()))
+        row: dict[str, object] = {
+            "case": case,
+            "method": initial.method,
+            "flow_name": flow.name,
+            "flow_commands": flow.commands,
+            "generated": 1,
+            "equivalent": 0,
+            "improved": 0,
+            "selected": 0,
+        }
+        if remaining <= 1:
+            row["error"] = "case timeout before synthesis"
+            rows.append(row)
+            break
+        candidate_aig = tmp / f"{case}_{index:03d}_{initial.method}_{flow.name}.aig"
+        try:
+            synthesize(abc, truth, initial, flow, candidate_aig, min(remaining, 150), root)
+            equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+            row["equivalent"] = int(equivalent)
+            if equivalent:
+                area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                improved = adp < best_adp
+                row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "error": ""})
+                if improved:
+                    best_area, best_delay, best_adp = area, delay, adp
+                    best_aig = candidate_aig
+            else:
+                row["error"] = "not equivalent"
+        except subprocess.TimeoutExpired:
+            row["error"] = "timeout"
+        except Exception as exc:
+            row["error"] = str(exc)[:500]
+        rows.append(row)
+
+    selected_row: dict[str, object] | None = None
+    if best_aig is not None and best_adp < base_adp:
+        shutil.copyfile(best_aig, source)
+        for row in rows:
+            if row.get("adp") == best_adp:
+                row["selected"] = 1
+                selected_row = row
+                break
+
+    append_complement_candidates_csv(logs / "complement_candidates.csv", rows)
+    if best_adp < base_adp:
+        method = selected_row.get("method", "complement") if selected_row else "complement"
+        print(f"[{case}] complement improved ADP {base_adp} -> {best_adp} via {method}")
+    else:
+        print(f"[{case}] complement kept current ADP {base_adp}")
+
+    return rows, CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best_area,
+        best_delay=best_delay,
+        best_adp=best_adp,
+        improvement_ratio=base_adp / best_adp if best_adp else 0.0,
+        selected_method=(
+            f"complement/{selected_row.get('method')}/{selected_row.get('flow_name')}"
+            if selected_row is not None
+            else "complement_no_improvement"
+        ),
+    )
+
+
+def run_specialized_generators_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    exact_max_inputs: int,
+) -> tuple[list[dict[str, object]], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    table = read_truth(truth)
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        source.parent.mkdir(parents=True, exist_ok=True)
+        run_abc(abc, f"read_truth -xf {abc_path(truth, root)}; st; write_aiger -s {abc_path(source, root)}", 120, root)
+
+    tmp = logs / "tmp_specialized_generators" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    best_area, best_delay, best_adp = base_area, base_delay, base_adp
+    best_aig: Path | None = None
+    rows: list[dict[str, object]] = []
+    deadline = time.monotonic() + timeout_per_case
+
+    generated = make_exact_specialized_candidates(case, table, truth, tmp, exact_max_inputs)
+    if not generated:
+        rows.append(
+            {
+                "case": case,
+                "function_type": "none",
+                "generator": "none",
+                "generated": 0,
+                "equivalent": 0,
+                "improved": 0,
+                "selected": 0,
+                "error": "no complete exact-match structural generator available",
+            }
+        )
+
+    for initial, function_type, generator in generated:
+        for flow in SPECIALIZED_GENERATOR_FLOWS:
+            remaining = max(1, int(deadline - time.monotonic()))
+            row: dict[str, object] = {
+                "case": case,
+                "function_type": function_type,
+                "generator": generator,
+                "flow_name": flow.name,
+                "flow_commands": flow.commands,
+                "generated": 1,
+                "equivalent": 0,
+                "improved": 0,
+                "selected": 0,
+            }
+            if remaining <= 1:
+                row["error"] = "case timeout before synthesis"
+                rows.append(row)
+                break
+            candidate_aig = tmp / f"{case}_{generator}_{flow.name}.aig"
+            try:
+                synthesize(abc, truth, initial, flow, candidate_aig, min(remaining, 150), root)
+                equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+                row["equivalent"] = int(equivalent)
+                if equivalent:
+                    area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                    improved = adp < best_adp
+                    row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "error": ""})
+                    if improved:
+                        best_area, best_delay, best_adp = area, delay, adp
+                        best_aig = candidate_aig
+                else:
+                    row["error"] = "not equivalent"
+            except subprocess.TimeoutExpired:
+                row["error"] = "timeout"
+            except Exception as exc:
+                row["error"] = str(exc)[:500]
+            rows.append(row)
+
+    selected_row: dict[str, object] | None = None
+    if best_aig is not None and best_adp < base_adp:
+        shutil.copyfile(best_aig, source)
+        for row in rows:
+            if row.get("adp") == best_adp:
+                row["selected"] = 1
+                selected_row = row
+                break
+
+    append_specialized_generators_csv(logs / "specialized_generators.csv", rows)
+    if best_adp < base_adp:
+        print(f"[{case}] specialized improved ADP {base_adp} -> {best_adp}")
+    else:
+        print(f"[{case}] specialized kept current ADP {base_adp}")
+
+    summary = CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best_area,
+        best_delay=best_delay,
+        best_adp=best_adp,
+        improvement_ratio=base_adp / best_adp if best_adp else 0.0,
+        selected_method=(
+            f"specialized/{selected_row.get('generator')}/{selected_row.get('flow_name')}"
+            if selected_row is not None
+            else "specialized/no_improvement"
+        ),
+    )
+    return rows, summary
+
+
 def run_mockturtle_structural_case(
     case: str,
     abc: Path,
@@ -1808,6 +3269,8 @@ def run_mockturtle_structural_case(
     root: Path,
     mockturtle_bin: Path,
     explicit_mode: str | None = None,
+    max_modes: int = 2,
+    exact_max_inputs: int = 12,
 ) -> list[dict[str, object]]:
     truth = benchmarks / f"{case}.truth"
     source = output / f"{case}.aig"
@@ -1823,11 +3286,20 @@ def run_mockturtle_structural_case(
     base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
     best_area, best_delay, best_adp = base_area, base_delay, base_adp
     fingerprint = fingerprint_case(truth)
+    exact_matches = exact_matches_for_truth(truth, max_expensive_inputs=exact_max_inputs)
+    exact_types = exact_type_hints_for_mockturtle(exact_matches)
     if explicit_mode is not None:
         modes = [explicit_mode]
         fingerprint_reason = f"explicit mode; labels={','.join(fingerprint.labels) or 'general'}"
     else:
-        modes, fingerprint_reason = select_structural_mockturtle_modes(fingerprint, base_area, base_delay, base_adp)
+        modes, fingerprint_reason = select_structural_mockturtle_modes(
+            fingerprint,
+            base_area,
+            base_delay,
+            base_adp,
+            exact_types,
+            max_modes,
+        )
 
     rows: list[dict[str, object]] = []
     deadline = time.monotonic() + timeout_per_case
@@ -1927,6 +3399,25 @@ def run_mockturtle_structural_case(
             rows.append(row)
 
     append_mockturtle_candidates_csv(logs / "mockturtle_candidates.csv", rows)
+    append_mockturtle_structural_summary_csv(
+        logs / "mockturtle_structural_summary.csv",
+        [
+            {
+                "case": case,
+                "base_area": base_area,
+                "base_delay": base_delay,
+                "base_adp": base_adp,
+                "best_area": best_area,
+                "best_delay": best_delay,
+                "best_adp": best_adp,
+                "improvement": base_adp - best_adp,
+                "modes": ";".join(modes),
+                "exact_types": ";".join(sorted(exact_types))[:500],
+                "generated": sum(int(row.get("generated", 0)) for row in rows),
+                "equivalent": sum(int(row.get("equivalent", 0)) for row in rows),
+            }
+        ],
+    )
     if best_adp < base_adp:
         print(f"[{case}] mockturtle structural improved ADP {base_adp} -> {best_adp} ({best_area}/{best_delay})")
     else:
@@ -2651,6 +4142,137 @@ def write_summary_csv(path: Path, rows: list[CaseSummary]) -> None:
             )
 
 
+def measure_baseline_truth_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    logs: Path,
+    root: Path,
+) -> tuple[int, int, int]:
+    tmp = logs / "tmp_final_summary" / case
+    tmp.mkdir(parents=True, exist_ok=True)
+    truth = benchmarks / f"{case}.truth"
+    aig = tmp / f"{case}_abc_truth_baseline.aig"
+    run_abc(abc, f"read_truth -xf {abc_path(truth, root)}; st; write_aiger -s {abc_path(aig, root)}", 120, root)
+    return measure_adp(abc, aig, 120, root)
+
+
+def selected_methods_from_logs(logs: Path) -> dict[str, str]:
+    selected: dict[str, str] = {}
+    for row in load_candidate_history(logs):
+        if row.get("selected") in ("1", "True", "true"):
+            case = row.get("case", "")
+            method = row.get("initial_method", "")
+            flow = row.get("flow_name", "")
+            if case:
+                selected[case] = f"{method}/{flow}".strip("/")
+    method_logs = [
+        ("specialized", "specialized_generators.csv", ("generator", "flow_name")),
+        ("mockturtle", "mockturtle_candidates.csv", ("mode", "")),
+        ("exact_npn", "exact_npn_rescue.csv", ("method", "flow_name")),
+        ("transduction", "transduction_rescue.csv", ("expansion_type", "flow_name")),
+        ("complement", "complement_candidates.csv", ("method", "flow_name")),
+    ]
+    for prefix, filename, keys in method_logs:
+        for row in read_result_rows(logs / filename):
+            if row.get("selected") in ("1", "True", "true"):
+                case = row.get("case", "")
+                left = row.get(keys[0], "") if keys[0] else ""
+                right = row.get(keys[1], "") if keys[1] else ""
+                if case:
+                    selected[case] = f"{prefix}/{left}/{right}".strip("/")
+    return selected
+
+
+def count_selected_improvement_cases(logs: Path, filename: str) -> int:
+    cases: set[str] = set()
+    for row in read_result_rows(logs / filename):
+        if row.get("selected") in ("1", "True", "true") or row.get("improved") in ("1", "True", "true"):
+            case = row.get("case", "")
+            if case:
+                cases.add(case)
+    return len(cases)
+
+
+def write_final_summary_csv(
+    path: Path,
+    results: list[CandidateResult],
+    logs: Path,
+    abc: Path,
+    benchmarks: Path,
+    root: Path,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    selected_methods = selected_methods_from_logs(logs)
+    exact_rows = read_result_rows(logs / "exact_function_matches.csv")
+    method_counts = {
+        "specialized": count_selected_improvement_cases(logs, "specialized_generators.csv"),
+        "mockturtle": count_selected_improvement_cases(logs, "mockturtle_candidates.csv"),
+        "exact_npn": count_selected_improvement_cases(logs, "exact_npn_rescue.csv"),
+        "transduction": count_selected_improvement_cases(logs, "transduction_rescue.csv"),
+        "complement": count_selected_improvement_cases(logs, "complement_candidates.csv"),
+    }
+    equivalent_count = sum(1 for row in results if row.equivalent)
+    total_adp = sum(row.adp or 0 for row in results if row.equivalent)
+    fieldnames = [
+        "row_type",
+        "case",
+        "baseline_area",
+        "baseline_delay",
+        "baseline_adp",
+        "best_area",
+        "best_delay",
+        "best_adp",
+        "improvement_ratio",
+        "selected_method",
+        "equivalent",
+        "total_adp",
+        "equivalent_count",
+        "exact_function_matches",
+        "specialized_improved_cases",
+        "mockturtle_improved_cases",
+        "exact_npn_improved_cases",
+        "transduction_improved_cases",
+        "complement_improved_cases",
+    ]
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in results:
+            assert row.area is not None and row.delay is not None and row.adp is not None
+            baseline_area, baseline_delay, baseline_adp = measure_baseline_truth_case(row.case, abc, benchmarks, logs, root)
+            writer.writerow(
+                {
+                    "row_type": "case",
+                    "case": row.case,
+                    "baseline_area": baseline_area,
+                    "baseline_delay": baseline_delay,
+                    "baseline_adp": baseline_adp,
+                    "best_area": row.area,
+                    "best_delay": row.delay,
+                    "best_adp": row.adp,
+                    "improvement_ratio": f"{baseline_adp / row.adp:.6f}" if row.adp else "",
+                    "selected_method": selected_methods.get(row.case, row.initial_method + "/" + row.flow_name),
+                    "equivalent": int(row.equivalent),
+                }
+            )
+        writer.writerow(
+            {
+                "row_type": "aggregate",
+                "case": "ALL",
+                "equivalent": int(equivalent_count == len(results)),
+                "total_adp": total_adp,
+                "equivalent_count": equivalent_count,
+                "exact_function_matches": len(exact_rows),
+                "specialized_improved_cases": method_counts["specialized"],
+                "mockturtle_improved_cases": method_counts["mockturtle"],
+                "exact_npn_improved_cases": method_counts["exact_npn"],
+                "transduction_improved_cases": method_counts["transduction"],
+                "complement_improved_cases": method_counts["complement"],
+            }
+        )
+
+
 def format_case_analysis(case: str, table: TruthTable) -> str:
     influence_text = ", ".join(f"x{i}:{value:.4f}" for i, value in enumerate(table.influences))
     score_text = ", ".join(f"x{i}:{value:.4f}" for i, value in enumerate(table.shannon_scores))
@@ -2818,20 +4440,19 @@ def write_complement_truth(path: Path, table: TruthTable) -> None:
 
 def wrap_inverted_blif_outputs(source: Path, target: Path) -> None:
     lines = source.read_text(encoding="ascii", errors="ignore").splitlines()
-    output_names: list[str] = []
-    output_line_index = -1
-    for index, line in enumerate(lines):
-        if line.startswith(".outputs "):
-            output_names = line.split()[1:]
-            output_line_index = index
-            break
-    if not output_names or output_line_index < 0:
+    _input_names, output_names = read_blif_interface(source)
+    if not output_names:
         raise RuntimeError(f"cannot find BLIF outputs in {source}")
     new_outputs = [f"y{i}" for i in range(len(output_names))]
     wrapped: list[str] = []
+    skip_output_continuation = False
     for line in lines:
+        if skip_output_continuation:
+            skip_output_continuation = line.rstrip().endswith("\\")
+            continue
         if line.startswith(".outputs "):
             wrapped.append(".outputs " + " ".join(new_outputs))
+            skip_output_continuation = line.rstrip().endswith("\\")
         elif line.startswith(".end"):
             for old, new in zip(output_names, new_outputs):
                 wrapped.append(f".names {old} {new}")
@@ -3197,6 +4818,12 @@ def build_case_coverage(
         case = row.get("case", "")
         if case:
             by_case[case].append(row)
+    exact_cases = {row.get("case", "") for row in read_result_rows(logs / "exact_function_matches.csv") if row.get("case", "")}
+    specialized_cases = {row.get("case", "") for row in read_result_rows(logs / "specialized_generators.csv") if row.get("case", "")}
+    mockturtle_cases = {row.get("case", "") for row in read_result_rows(logs / "mockturtle_candidates.csv") if row.get("case", "")}
+    exact_npn_cases = {row.get("case", "") for row in read_result_rows(logs / "exact_npn_rescue.csv") if row.get("case", "")}
+    complement_cases = {row.get("case", "") for row in read_result_rows(logs / "complement_candidates.csv") if row.get("case", "")}
+    transduction_cases = {row.get("case", "") for row in read_result_rows(logs / "transduction_rescue.csv") if row.get("case", "")}
     coverage_rows: list[dict[str, str]] = []
     for case in ALL_CASES:
         case_rows = by_case.get(case, [])
@@ -3221,7 +4848,12 @@ def build_case_coverage(
         improvement_ratio = (baseline_adp / current_adp) if current_adp else 0.0
         bdd_tried = any("bdd" in method or "shannon" in method for method in methods)
         sop_pos_tried = any("sop" in method or "pos" in method for method in methods)
-        complement_tried = any("complement" in method for method in methods)
+        complement_tried = any("complement" in method for method in methods) or case in complement_cases
+        exact_match_tried = case in exact_cases
+        specialized_tried = case in specialized_cases
+        mockturtle_tried = case in mockturtle_cases
+        exact_npn_tried = case in exact_npn_cases
+        transduction_tried = case in transduction_cases
         area_tried = "area" in families
         delay_tried = "delay" in families
         balanced_tried = "balanced" in families
@@ -3238,6 +4870,8 @@ def build_case_coverage(
             under_reasons.append("complement_not_tried")
         if not bdd_tried:
             under_reasons.append("bdd_not_tried")
+        if not exact_match_tried:
+            under_reasons.append("exact_match_not_tried")
         if improvement_ratio < 1.02:
             under_reasons.append("improvement_ratio<1.02")
         coverage_rows.append(
@@ -3256,6 +4890,11 @@ def build_case_coverage(
                 "area_flow_tried": str(int(area_tried)),
                 "delay_flow_tried": str(int(delay_tried)),
                 "balanced_flow_tried": str(int(balanced_tried)),
+                "exact_match_tried": str(int(exact_match_tried)),
+                "specialized_tried": str(int(specialized_tried)),
+                "mockturtle_tried": str(int(mockturtle_tried)),
+                "exact_npn_tried": str(int(exact_npn_tried)),
+                "transduction_tried": str(int(transduction_tried)),
                 "baseline_adp": str(baseline_adp),
                 "current_area": str(current_area),
                 "current_delay": str(current_delay),
@@ -3447,6 +5086,230 @@ def run_score_aware_optimize(args: argparse.Namespace, root: Path) -> None:
     print(f"[score-aware] wrote {summary_path}")
 
 
+def append_contest_schedule_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "stage",
+        "case",
+        "before_adp",
+        "after_adp",
+        "delta_adp",
+        "status",
+        "elapsed_sec",
+        "detail",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
+def current_case_adp(abc: Path, output: Path, case: str, root: Path) -> int:
+    aig = output / f"{case}.aig"
+    if not aig.is_file():
+        return 0
+    return measure_adp(abc, aig, 120, root)[2]
+
+
+def run_contest_optimize(args: argparse.Namespace, root: Path) -> None:
+    cases = selected_cases_from_args(args)
+    deadline = time.monotonic() + max(1, args.time_budget)
+    schedule_path = args.logs / "contest_optimize_schedule.csv"
+    if schedule_path.exists():
+        schedule_path.unlink()
+
+    def remaining() -> int:
+        return max(1, int(deadline - time.monotonic()))
+
+    def run_stage(stage: str, case: str, fn) -> None:
+        if time.monotonic() >= deadline:
+            return
+        before = current_case_adp(args.abc, args.output, case, root)
+        start = time.monotonic()
+        status = "OK"
+        detail = ""
+        try:
+            detail = fn(case)
+        except subprocess.TimeoutExpired:
+            status = "TIMEOUT"
+        except Exception as exc:
+            status = "ERROR"
+            detail = str(exc)[:500]
+        after = current_case_adp(args.abc, args.output, case, root)
+        append_contest_schedule_csv(
+            schedule_path,
+            [
+                {
+                    "stage": stage,
+                    "case": case,
+                    "before_adp": before,
+                    "after_adp": after,
+                    "delta_adp": before - after,
+                    "status": status,
+                    "elapsed_sec": f"{time.monotonic() - start:.2f}",
+                    "detail": detail,
+                }
+            ],
+        )
+
+    print(f"[contest] cases={len(cases)}, time_budget={args.time_budget}s")
+
+    exact_rows = []
+    for case in cases:
+        if time.monotonic() >= deadline:
+            break
+
+        def exact_stage(current_case: str) -> str:
+            matches = exact_matches_for_truth(args.benchmarks / f"{current_case}.truth", max_expensive_inputs=args.exact_max_inputs)
+            exact_rows.extend(matches)
+            return f"matches={len(matches)}"
+
+        run_stage("exact_match", case, exact_stage)
+    if exact_rows:
+        write_exact_function_matches_csv(args.logs / "exact_function_matches.csv", exact_rows)
+
+    fair_stages = [
+        "base_coverage",
+        "complement",
+        "specialized",
+        "mockturtle",
+        "exact_npn",
+        "transduction",
+    ]
+    ok_mockturtle, mockturtle_error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
+
+    for stage in fair_stages:
+        for case in cases:
+            if time.monotonic() >= deadline:
+                break
+            stage_timeout = min(args.timeout_per_case, max(15, remaining() // max(1, len(cases))))
+            if stage == "base_coverage":
+                def base_stage(current_case: str, timeout: int = stage_timeout) -> str:
+                    rows, _summary = optimize_case(
+                        current_case,
+                        args.abc,
+                        args.benchmarks,
+                        args.output,
+                        args.logs,
+                        max(8, min(args.min_candidates, args.max_candidates)),
+                        args.seed,
+                        timeout,
+                        root,
+                        True,
+                        True,
+                        False,
+                        True,
+                        args.history_guided_ga,
+                    )
+                    append_results_csv(args.logs / "coverage_candidates.csv", rows)
+                    return f"rows={len(rows)}"
+
+                run_stage(stage, case, base_stage)
+            elif stage == "complement":
+                def complement_stage(current_case: str, timeout: int = stage_timeout) -> str:
+                    rows, _summary = run_complement_rescue_case(
+                        current_case,
+                        args.abc,
+                        args.benchmarks,
+                        args.output,
+                        args.logs,
+                        timeout,
+                        root,
+                        args.seed,
+                        args.complement_budget,
+                        not args.no_bdd,
+                    )
+                    return f"rows={len(rows)}"
+
+                run_stage(stage, case, complement_stage)
+            elif stage == "specialized":
+                def specialized_stage(current_case: str, timeout: int = stage_timeout) -> str:
+                    rows, _summary = run_specialized_generators_case(
+                        current_case,
+                        args.abc,
+                        args.benchmarks,
+                        args.output,
+                        args.logs,
+                        timeout,
+                        root,
+                        args.exact_max_inputs,
+                    )
+                    return f"rows={len(rows)}"
+
+                run_stage(stage, case, specialized_stage)
+            elif stage == "mockturtle":
+                if not ok_mockturtle:
+                    append_contest_schedule_csv(
+                        schedule_path,
+                        [
+                            {
+                                "stage": stage,
+                                "case": case,
+                                "status": "SKIPPED",
+                                "detail": mockturtle_error,
+                            }
+                        ],
+                    )
+                    continue
+
+                def mockturtle_stage(current_case: str, timeout: int = stage_timeout) -> str:
+                    rows = run_mockturtle_structural_case(
+                        current_case,
+                        args.abc,
+                        args.benchmarks,
+                        args.output,
+                        args.logs,
+                        timeout,
+                        root,
+                        args.mockturtle_structural_bin,
+                        None,
+                        args.mockturtle_max_modes,
+                        args.exact_max_inputs,
+                    )
+                    return f"rows={len(rows)}"
+
+                run_stage(stage, case, mockturtle_stage)
+            elif stage == "exact_npn":
+                def npn_stage(current_case: str, timeout: int = stage_timeout) -> str:
+                    rows, _summary = run_exact_npn_rescue_case(
+                        current_case,
+                        args.abc,
+                        args.benchmarks,
+                        args.output,
+                        args.logs,
+                        timeout,
+                        root,
+                        args.npn_max_support,
+                        args.npn_max_flows,
+                    )
+                    return f"rows={len(rows)}"
+
+                run_stage(stage, case, npn_stage)
+            elif stage == "transduction":
+                def transduction_stage(current_case: str, timeout: int = stage_timeout) -> str:
+                    rows, _summary = run_transduction_rescue_case(
+                        current_case,
+                        args.abc,
+                        args.benchmarks,
+                        args.output,
+                        args.logs,
+                        timeout,
+                        root,
+                        args.transduction_budget,
+                        args.seed,
+                    )
+                    return f"rows={len(rows)}"
+
+                run_stage(stage, case, transduction_stage)
+
+    coverage = build_case_coverage(args.abc, args.benchmarks, args.output, args.logs, root)
+    write_case_coverage_report(coverage, args.logs)
+    print(f"[contest] wrote {schedule_path}")
+
+
 def inclusive_cases(start_case: str, end_case: str) -> list[str]:
     start = int(start_case.removeprefix("ex"))
     end = int(end_case.removeprefix("ex"))
@@ -3506,7 +5369,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
     write_reproduce_recipe(args.logs)
     print(format_reproduce_recipe())
     print("")
-    print("[reproduce] stage 1/15: full hybrid synthesis search")
+    print("[reproduce] stage 1/17: full hybrid synthesis search")
     for case in ALL_CASES:
         print(f"[{case}] optimizing")
         rows, summary = optimize_case(
@@ -3528,7 +5391,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     for range_index, (start_case, end_case) in enumerate(REPRODUCE_ARITHMETIC_RANGES, start=2):
-        print(f"[reproduce] stage {range_index}/15: focused arithmetic range {start_case}-{end_case}")
+        print(f"[reproduce] stage {range_index}/17: focused arithmetic range {start_case}-{end_case}")
         for case in inclusive_cases(start_case, end_case):
             print(f"[{case}] optimizing focused range")
             rows, summary = optimize_case(
@@ -3550,7 +5413,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 5/15: focused divider quotient range "
+        f"[reproduce] stage 5/17: focused divider quotient range "
         f"{REPRODUCE_DIVIDER_RANGE[0]}-{REPRODUCE_DIVIDER_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_DIVIDER_RANGE):
@@ -3574,7 +5437,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 6/15: focused square-root range "
+        f"[reproduce] stage 6/17: focused square-root range "
         f"{REPRODUCE_SQRT_RANGE[0]}-{REPRODUCE_SQRT_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_SQRT_RANGE):
@@ -3597,7 +5460,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 7/15: focused diagnosis-driven rescue cases")
+    print("[reproduce] stage 7/17: focused diagnosis-driven rescue cases")
     for case in REPRODUCE_RESCUE_CASES:
         print(f"[{case}] optimizing focused rescue case")
         rows, summary = optimize_case(
@@ -3620,7 +5483,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 8/15: equivalence-checked polish passes")
+    print("[reproduce] stage 8/17: equivalence-checked polish passes")
     for pass_index in range(REPRODUCE_POLISH_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[polish] pass {pass_index + 1}/{REPRODUCE_POLISH_PASSES}")
@@ -3648,7 +5511,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[polish] converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 9/15: deterministic all-case refinement package")
+    print("[reproduce] stage 9/17: deterministic all-case refinement package")
     for pass_index in range(REPRODUCE_SWEEP_PASSES):
         pass_summaries = []
         print(f"[refine] all cases pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
@@ -3702,7 +5565,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[refine] focused range converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 10/15: final all-case deterministic refinement package")
+    print("[reproduce] stage 10/17: final all-case deterministic refinement package")
     for pass_index in range(REPRODUCE_FINAL_SWEEP_PASSES):
         pass_summaries = []
         print(f"[refine] final all cases pass {pass_index + 1}/{REPRODUCE_FINAL_SWEEP_PASSES}")
@@ -3730,7 +5593,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[refine] final all-case package converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 11/15: fingerprint-guided mockturtle structural resynthesis")
+    print("[reproduce] stage 11/17: fingerprint-guided mockturtle structural resynthesis")
     ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
     if not ok:
         print(f"[mockturtle-structural] unavailable, skipping: {error}")
@@ -3749,7 +5612,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 None,
             )
 
-    print("[reproduce] stage 12/15: final type-guided circuit-family refinement")
+    print("[reproduce] stage 12/17: final type-guided circuit-family refinement")
     for case in ALL_CASES:
         print(f"[{case}] type-guided refine")
         run_type_guided_refine_case(
@@ -3763,7 +5626,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_TYPE_GUIDED_MAX_FLOWS,
         )
 
-    print("[reproduce] stage 13/15: objective-guided area/delay/balanced refinement")
+    print("[reproduce] stage 13/17: objective-guided area/delay/balanced refinement")
     for case in ALL_CASES:
         print(f"[{case}] objective-guided refine")
         run_objective_guided_refine_case(
@@ -3777,7 +5640,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_OBJECTIVE_MAX_PER_FAMILY,
         )
 
-    print("[reproduce] stage 14/15: micro-guided per-case refinement")
+    print("[reproduce] stage 14/17: micro-guided per-case refinement")
     for case in ALL_CASES:
         print(f"[{case}] micro-guided refine")
         run_micro_guided_refine_case(
@@ -3791,7 +5654,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_MICRO_MAX_FLOWS,
         )
 
-    print("[reproduce] stage 15/15: small-case targeted refinement")
+    print("[reproduce] stage 15/17: small-case targeted refinement")
     for case in ALL_CASES:
         print(f"[{case}] small-case refine")
         run_small_case_refine_case(
@@ -3806,6 +5669,49 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_SMALL_CASE_AREA_THRESHOLD,
             REPRODUCE_SMALL_CASE_ADP_THRESHOLD,
         )
+
+    print("[reproduce] stage 16/17: final advanced mockturtle structural refinement")
+    ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
+    if not ok:
+        print(f"[mockturtle-structural] unavailable, skipping: {error}")
+    else:
+        for case in ALL_CASES:
+            print(f"[{case}] final advanced mockturtle structural")
+            run_mockturtle_structural_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                REPRODUCE_FINAL_ADVANCED_MOCKTURTLE_TIMEOUT,
+                root,
+                args.mockturtle_structural_bin,
+                None,
+            )
+
+    print("[reproduce] stage 17/17: deterministic micro-guided fixed-point convergence")
+    for pass_index in range(REPRODUCE_MICRO_CONVERGENCE_PASSES):
+        pass_summaries: list[CaseSummary] = []
+        print(f"[micro-converge] pass {pass_index + 1}/{REPRODUCE_MICRO_CONVERGENCE_PASSES}")
+        for case in ALL_CASES:
+            print(f"[{case}] micro-guided convergence")
+            _rows, summary = run_micro_guided_refine_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                REPRODUCE_MICRO_CONVERGENCE_TIMEOUT,
+                root,
+                REPRODUCE_MICRO_MAX_FLOWS,
+            )
+            pass_summaries.append(summary)
+        baseline_total = sum(row.baseline_adp for row in pass_summaries)
+        best_total = sum(row.best_adp for row in pass_summaries)
+        print(f"[micro-converge] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        if best_total >= baseline_total:
+            print("[micro-converge] converged: no pass-level ADP improvement")
+            break
 
     write_results_csv(args.logs / "reproduce_candidates.csv", step_results)
     final_results, final_summaries = verify_final_outputs(ALL_CASES, args.abc, args.benchmarks, args.output, root)
@@ -4023,8 +5929,14 @@ def parse_args() -> argparse.Namespace:
     group.add_argument("--range", nargs=2, metavar=("START", "END"), help="run an inclusive case range")
     group.add_argument("--reproduce-best", action="store_true", help="run the full deterministic best-result workflow")
     parser.add_argument("--show-reproduce-recipe", action="store_true", help="print the deterministic reproduce-best stage recipe and exit")
+    parser.add_argument("--write-contest-plan", action="store_true", help="write or locate the contest optimization plan and exit")
     parser.add_argument("--analyze-case", help="print truth-table features and exit")
     parser.add_argument("--classify-case", help="print Boolean fingerprint/classification and exit")
+    parser.add_argument("--exact-function-report", action="store_true", help="write exact function recognition matches and exit")
+    parser.add_argument("--exact-match-all", action="store_true", help="alias for exact function recognition over the selected cases")
+    parser.add_argument("--verify-final", action="store_true", help="verify current output AIGs and refresh results/summary logs")
+    parser.add_argument("--write-final-summary", action="store_true", help="verify current outputs and write report-ready final_summary.csv")
+    parser.add_argument("--exact-max-inputs", type=int, default=14, help="maximum input count for expensive exact arithmetic detectors")
     parser.add_argument("--abc", type=Path, default=Path("student/abc"))
     parser.add_argument("--benchmarks", type=Path, default=Path("benchmarks"))
     parser.add_argument("--output", type=Path, default=Path("output"))
@@ -4044,6 +5956,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mockturtle-structural", action="store_true", help="try fingerprint-guided structural mockturtle resynthesis")
     parser.add_argument("--mockturtle-case", help="run structural mockturtle resynthesis on one case")
     parser.add_argument("--mode", choices=STRUCTURAL_MOCKTURTLE_MODES, help="explicit structural mockturtle mode for --mockturtle-case")
+    parser.add_argument("--mockturtle-max-modes", type=int, default=2, help="maximum fingerprint-selected mockturtle modes per case")
     parser.add_argument(
         "--mockturtle-structural-bin",
         type=Path,
@@ -4055,6 +5968,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--diagnose-results", action="store_true", help="classify current outputs by likely optimization bottleneck")
     parser.add_argument("--rescue-worst", type=int, metavar="K", help="rerun focused rescue on the K highest-ADP current outputs")
     parser.add_argument("--try-complement", action="store_true", help="try complement-first synthesis candidates")
+    parser.add_argument("--complement-rescue", action="store_true", help="run generic complement synthesis wrapper candidates")
+    parser.add_argument("--complement-budget", type=int, default=16, help="maximum complement wrapper candidates per case")
     parser.add_argument("--bdd-sift", action="store_true", help="try local adjacent-swap BDD order search during rescue")
     parser.add_argument("--validate-templates", action="store_true", help="write exact arithmetic/template validation CSV")
     parser.add_argument("--history-guided-ga", action="store_true", help="seed GA flows from historical winning flows")
@@ -4066,6 +5981,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--candidates-per-round", type=int, default=10, help="candidate budget per case per round")
     parser.add_argument("--score-aware-optimize", action="store_true", help="allocate candidate budget from coverage and ADP diagnostics")
     parser.add_argument("--total-budget", type=int, default=5000, help="total candidate budget for score-aware scheduling")
+    parser.add_argument("--contest-optimize", action="store_true", help="run fair contest-style scheduler over all selected cases")
+    parser.add_argument("--case-fair-next-optimize", action="store_true", help="run the next deterministic fair refinement package on every selected case")
+    parser.add_argument("--time-budget", type=int, default=3600, help="wall-clock time budget in seconds for --contest-optimize")
     parser.add_argument("--type-guided-refine", action="store_true", help="classify every selected case and run a fixed type-specific refinement package")
     parser.add_argument("--type-guided-max-flows", type=int, default=5, help="maximum type-guided ABC refinement flows per case")
     parser.add_argument("--objective-guided-refine", action="store_true", help="try fixed area-first, delay-first, and balanced refinement packages per case")
@@ -4073,10 +5991,361 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--micro-guided-refine", action="store_true", help="try small-circuit micro refinement flows on every selected case")
     parser.add_argument("--micro-max-flows", type=int, default=4, help="maximum micro-guided refinement flows per case")
     parser.add_argument("--small-case-refine", action="store_true", help="run a small-case-only refinement package selected by current area/ADP")
+    parser.add_argument("--specialized-generators", action="store_true", help="run exact-match structural generators and accept only ADP improvements")
+    parser.add_argument("--specialized-generate", action="store_true", help="alias for --specialized-generators")
+    parser.add_argument("--exact-npn-rescue", action="store_true", help="run exact small-support/NPN-style rescue candidates")
+    parser.add_argument("--npn-max-support", type=int, default=6, help="maximum per-output support for exact small-support rescue")
+    parser.add_argument("--npn-max-flows", type=int, default=4, help="maximum ABC reductions for exact small-support rescue")
+    parser.add_argument("--transduction-rescue", action="store_true", help="run bounded equivalent expansion/reduction rescue")
+    parser.add_argument("--transduction-budget", type=int, default=12, help="maximum transduction candidates per case")
     parser.add_argument("--small-max-flows", type=int, default=5, help="maximum small-case refinement flows per selected case")
     parser.add_argument("--small-area-threshold", type=int, default=2500, help="treat current outputs with area at or below this as small cases")
     parser.add_argument("--small-adp-threshold", type=int, default=50000, help="treat current outputs with ADP at or below this as small cases")
     return parser.parse_args()
+
+
+def selected_cases_from_args(args: argparse.Namespace, override_case: str | None = None) -> list[str]:
+    if override_case:
+        return [override_case]
+    if args.case:
+        return [args.case]
+    if args.range:
+        start = int(args.range[0].removeprefix("ex"))
+        end = int(args.range[1].removeprefix("ex"))
+        return [f"ex{i}" for i in range(start, end + 1)]
+    return ALL_CASES
+
+
+def print_summary_totals(prefix: str, summaries: list[CaseSummary]) -> None:
+    baseline_total = sum(row.baseline_adp for row in summaries)
+    best_total = sum(row.best_adp for row in summaries)
+    print(f"[{prefix}] total ADP {baseline_total} -> {best_total}")
+
+
+def run_verify_final(args: argparse.Namespace, root: Path, write_final_summary: bool = False) -> tuple[list[CandidateResult], list[CaseSummary]]:
+    cases = selected_cases_from_args(args)
+    results, summaries = verify_final_outputs(cases, args.abc, args.benchmarks, args.output, root)
+    write_results_csv(args.logs / "results.csv", results)
+    write_summary_csv(args.logs / "summary.csv", summaries)
+    write_pareto_candidates_csv(args.logs / "pareto_candidates.csv", results)
+    if write_final_summary:
+        write_final_summary_csv(args.logs / "final_summary.csv", results, args.logs, args.abc, args.benchmarks, root)
+    equivalent_count = sum(1 for row in results if row.equivalent)
+    total_adp = sum(row.adp or 0 for row in results if row.equivalent)
+    print("------------------------------------------------------")
+    print(f"Equivalent cases: {equivalent_count}/{len(results)}")
+    print(f"Total ADP over equivalent cases: {total_adp}")
+    if write_final_summary:
+        print(f"[final-summary] wrote {args.logs / 'final_summary.csv'}")
+    return results, summaries
+
+
+def write_contest_plan_file(root: Path) -> Path:
+    path = root / "student" / "CONTEST_OPT_PLAN.md"
+    if not path.is_file():
+        path.write_text(
+            "\n".join(
+                [
+                    "# Contest-Style AIG Optimization Plan",
+                    "",
+                    "The full contest-style plan is normally maintained in this file.",
+                    "Run the optimizer phases with equivalence-gated candidates only.",
+                    "",
+                ]
+            ),
+            encoding="utf-8",
+        )
+    return path
+
+
+def run_case_fair_next_optimize(args: argparse.Namespace, root: Path) -> None:
+    """Run one deterministic, case-fair improvement package over selected cases."""
+    cases = selected_cases_from_args(args)
+    args.logs.mkdir(parents=True, exist_ok=True)
+    rows: list[dict[str, object]] = []
+    mockturtle_ok, mockturtle_error = (False, "not requested in case-fair follow-up pass")
+    if args.try_mockturtle:
+        mockturtle_ok, mockturtle_error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
+    global_deadline = time.monotonic() + max(1, args.time_budget)
+    result_path = args.logs / "case_fair_next_optimize.csv"
+    fieldnames = [
+        "case",
+        "stage",
+        "status",
+        "before_area",
+        "before_delay",
+        "before_adp",
+        "after_area",
+        "after_delay",
+        "after_adp",
+        "improved",
+        "error",
+    ]
+
+    def write_progress() -> None:
+        with result_path.open("w", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(row)
+
+    def measure_current(case: str) -> tuple[int, int, int]:
+        aig = args.output / f"{case}.aig"
+        return measure_adp(args.abc, aig, 120, root)
+
+    for case in cases:
+        if time.monotonic() >= global_deadline:
+            print("[case-fair] global time budget reached")
+            break
+        print(f"[{case}] case-fair next optimize")
+        case_deadline = min(global_deadline, time.monotonic() + max(1, args.timeout_per_case))
+        try:
+            start_area, start_delay, start_adp = measure_current(case)
+        except Exception as exc:
+            rows.append(
+                {
+                    "case": case,
+                    "stage": "initial_measure",
+                    "status": "ERROR",
+                    "before_adp": "",
+                    "after_adp": "",
+                    "improved": 0,
+                    "error": str(exc)[:500],
+                }
+            )
+            write_progress()
+            continue
+
+        stages: list[tuple[str, object, dict[str, object]]] = [
+            (
+                "objective_guided",
+                run_objective_guided_refine_case,
+                {
+                    "max_per_objective": min(1, max(1, args.objective_max_per_family)),
+                },
+            ),
+            (
+                "micro_guided",
+                run_micro_guided_refine_case,
+                {
+                    "max_flows": 1,
+                },
+            ),
+            (
+                "small_case",
+                run_small_case_refine_case,
+                {
+                    "max_flows": 1,
+                    "area_threshold": args.small_area_threshold,
+                    "adp_threshold": args.small_adp_threshold,
+                },
+            ),
+            (
+                "complement",
+                run_complement_rescue_case,
+                {
+                    "seed": args.seed,
+                    "budget": min(2, max(1, args.complement_budget)),
+                    "use_bdd": not args.no_bdd,
+                },
+            ),
+        ]
+
+        for stage_index, (stage_name, stage_func, extra) in enumerate(stages):
+            remaining = int(case_deadline - time.monotonic())
+            if remaining <= 2:
+                rows.append(
+                    {
+                        "case": case,
+                        "stage": stage_name,
+                        "status": "SKIP_TIMEOUT",
+                        "before_adp": measure_current(case)[2],
+                        "after_adp": "",
+                        "improved": 0,
+                        "error": "case time budget reached",
+                    }
+                )
+                continue
+            stages_left = len(stages) - stage_index + (1 if args.try_mockturtle and mockturtle_ok and args.mockturtle_max_modes > 0 else 0)
+            stage_timeout = min(2, max(1, remaining // max(1, stages_left)))
+            before_area, before_delay, before_adp = measure_current(case)
+            try:
+                if stage_name == "objective_guided":
+                    _stage_rows, _summary = stage_func(
+                        case,
+                        args.abc,
+                        args.benchmarks,
+                        args.output,
+                        args.logs,
+                        stage_timeout,
+                        root,
+                        extra["max_per_objective"],
+                    )
+                elif stage_name == "micro_guided":
+                    _stage_rows, _summary = stage_func(
+                        case,
+                        args.abc,
+                        args.benchmarks,
+                        args.output,
+                        args.logs,
+                        stage_timeout,
+                        root,
+                        extra["max_flows"],
+                    )
+                elif stage_name == "small_case":
+                    _stage_rows, _summary = stage_func(
+                        case,
+                        args.abc,
+                        args.benchmarks,
+                        args.output,
+                        args.logs,
+                        stage_timeout,
+                        root,
+                        extra["max_flows"],
+                        extra["area_threshold"],
+                        extra["adp_threshold"],
+                    )
+                else:
+                    _stage_rows, _summary = stage_func(
+                        case,
+                        args.abc,
+                        args.benchmarks,
+                        args.output,
+                        args.logs,
+                        stage_timeout,
+                        root,
+                        extra["seed"],
+                        extra["budget"],
+                        extra["use_bdd"],
+                    )
+                after_area, after_delay, after_adp = measure_current(case)
+                rows.append(
+                    {
+                        "case": case,
+                        "stage": stage_name,
+                        "status": "OK",
+                        "before_area": before_area,
+                        "before_delay": before_delay,
+                        "before_adp": before_adp,
+                        "after_area": after_area,
+                        "after_delay": after_delay,
+                        "after_adp": after_adp,
+                        "improved": int(after_adp < before_adp),
+                        "error": "",
+                    }
+                )
+            except Exception as exc:
+                rows.append(
+                    {
+                        "case": case,
+                        "stage": stage_name,
+                        "status": "ERROR",
+                        "before_area": before_area,
+                        "before_delay": before_delay,
+                        "before_adp": before_adp,
+                        "after_area": "",
+                        "after_delay": "",
+                        "after_adp": "",
+                        "improved": 0,
+                        "error": str(exc)[:500],
+                    }
+                )
+
+        remaining = int(case_deadline - time.monotonic())
+        if args.try_mockturtle and mockturtle_ok and args.mockturtle_max_modes > 0 and remaining > 2:
+            before_area, before_delay, before_adp = measure_current(case)
+            try:
+                run_mockturtle_structural_case(
+                    case,
+                    args.abc,
+                    args.benchmarks,
+                    args.output,
+                    args.logs,
+                    remaining,
+                    root,
+                    args.mockturtle_structural_bin,
+                    None,
+                    1,
+                    args.exact_max_inputs,
+                )
+                after_area, after_delay, after_adp = measure_current(case)
+                rows.append(
+                    {
+                        "case": case,
+                        "stage": "mockturtle_structural",
+                        "status": "OK",
+                        "before_area": before_area,
+                        "before_delay": before_delay,
+                        "before_adp": before_adp,
+                        "after_area": after_area,
+                        "after_delay": after_delay,
+                        "after_adp": after_adp,
+                        "improved": int(after_adp < before_adp),
+                        "error": "",
+                    }
+                )
+            except Exception as exc:
+                rows.append(
+                    {
+                        "case": case,
+                        "stage": "mockturtle_structural",
+                        "status": "ERROR",
+                        "before_area": before_area,
+                        "before_delay": before_delay,
+                        "before_adp": before_adp,
+                        "after_area": "",
+                        "after_delay": "",
+                        "after_adp": "",
+                        "improved": 0,
+                        "error": str(exc)[:500],
+                    }
+                )
+        elif args.try_mockturtle and not mockturtle_ok:
+            rows.append(
+                {
+                    "case": case,
+                    "stage": "mockturtle_structural",
+                    "status": "SKIP",
+                    "before_adp": start_adp,
+                    "after_adp": "",
+                    "improved": 0,
+                    "error": mockturtle_error,
+                }
+            )
+        elif args.try_mockturtle:
+            rows.append(
+                {
+                    "case": case,
+                    "stage": "mockturtle_structural",
+                    "status": "SKIP_TIMEOUT",
+                    "before_adp": measure_current(case)[2],
+                    "after_adp": "",
+                    "improved": 0,
+                    "error": "case time budget reached",
+                }
+            )
+
+        final_area, final_delay, final_adp = measure_current(case)
+        print(f"[{case}] case-fair ADP {start_adp} -> {final_adp}")
+        rows.append(
+            {
+                "case": case,
+                "stage": "case_total",
+                "status": "OK",
+                "before_area": start_area,
+                "before_delay": start_delay,
+                "before_adp": start_adp,
+                "after_area": final_area,
+                "after_delay": final_delay,
+                "after_adp": final_adp,
+                "improved": int(final_adp < start_adp),
+                "error": "",
+            }
+        )
+        write_progress()
+
+    write_progress()
+    run_verify_final(args, root, write_final_summary=True)
 
 
 def main() -> int:
@@ -4084,6 +6353,13 @@ def main() -> int:
     root = Path.cwd()
     if args.show_reproduce_recipe:
         print(format_reproduce_recipe())
+        return 0
+    if args.write_contest_plan:
+        plan_path = write_contest_plan_file(root)
+        print(f"[contest-plan] {plan_path}")
+        return 0
+    if args.verify_final or args.write_final_summary:
+        run_verify_final(args, root, args.write_final_summary)
         return 0
     if args.analyze_case:
         truth = args.benchmarks / f"{args.analyze_case}.truth"
@@ -4095,6 +6371,10 @@ def main() -> int:
         fingerprint = fingerprint_case(truth)
         append_classification_csv(args.logs / "classification.csv", fingerprint)
         print(format_fingerprint(fingerprint))
+        exact_rows = exact_matches_for_truth(truth, max_expensive_inputs=12)
+        write_exact_function_matches_csv(args.logs / "exact_function_matches.csv", exact_rows)
+        print("")
+        print(format_exact_matches(exact_rows))
         table = read_truth(truth)
         square_order = detect_unsigned_square(table)
         multiplier_orders = detect_unsigned_multiplier(table)
@@ -4137,6 +6417,16 @@ def main() -> int:
             print("- recommended_strategy: template_unsigned_sqrt + ABC post-optimization")
         return 0
 
+    if args.exact_function_report or args.exact_match_all:
+        cases = selected_cases_from_args(args)
+        exact_rows = []
+        for case in cases:
+            exact_rows.extend(exact_matches_for_truth(args.benchmarks / f"{case}.truth", max_expensive_inputs=args.exact_max_inputs))
+        write_exact_function_matches_csv(args.logs / "exact_function_matches.csv", exact_rows)
+        print(f"[exact] wrote {args.logs / 'exact_function_matches.csv'}")
+        print(f"[exact] matched rows: {len(exact_rows)}")
+        return 0
+
     if args.ablation_report:
         run_ablation_report(args.logs)
         return 0
@@ -4161,15 +6451,14 @@ def main() -> int:
     if args.score_aware_optimize:
         run_score_aware_optimize(args, root)
         return 0
+    if args.contest_optimize:
+        run_contest_optimize(args, root)
+        return 0
+    if args.case_fair_next_optimize:
+        run_case_fair_next_optimize(args, root)
+        return 0
     if args.type_guided_refine:
-        if args.case:
-            cases = [args.case]
-        elif args.range:
-            start = int(args.range[0].removeprefix("ex"))
-            end = int(args.range[1].removeprefix("ex"))
-            cases = [f"ex{i}" for i in range(start, end + 1)]
-        else:
-            cases = ALL_CASES
+        cases = selected_cases_from_args(args)
         summaries: list[CaseSummary] = []
         for case in cases:
             print(f"[{case}] type-guided refine")
@@ -4184,19 +6473,10 @@ def main() -> int:
                 args.type_guided_max_flows,
             )
             summaries.append(summary)
-        baseline_total = sum(row.baseline_adp for row in summaries)
-        best_total = sum(row.best_adp for row in summaries)
-        print(f"[type-guided] total ADP {baseline_total} -> {best_total}")
+        print_summary_totals("type-guided", summaries)
         return 0
     if args.objective_guided_refine:
-        if args.case:
-            cases = [args.case]
-        elif args.range:
-            start = int(args.range[0].removeprefix("ex"))
-            end = int(args.range[1].removeprefix("ex"))
-            cases = [f"ex{i}" for i in range(start, end + 1)]
-        else:
-            cases = ALL_CASES
+        cases = selected_cases_from_args(args)
         summaries: list[CaseSummary] = []
         for case in cases:
             print(f"[{case}] objective-guided refine")
@@ -4211,19 +6491,10 @@ def main() -> int:
                 args.objective_max_per_family,
             )
             summaries.append(summary)
-        baseline_total = sum(row.baseline_adp for row in summaries)
-        best_total = sum(row.best_adp for row in summaries)
-        print(f"[objective-guided] total ADP {baseline_total} -> {best_total}")
+        print_summary_totals("objective-guided", summaries)
         return 0
     if args.micro_guided_refine:
-        if args.case:
-            cases = [args.case]
-        elif args.range:
-            start = int(args.range[0].removeprefix("ex"))
-            end = int(args.range[1].removeprefix("ex"))
-            cases = [f"ex{i}" for i in range(start, end + 1)]
-        else:
-            cases = ALL_CASES
+        cases = selected_cases_from_args(args)
         summaries: list[CaseSummary] = []
         for case in cases:
             print(f"[{case}] micro-guided refine")
@@ -4238,19 +6509,10 @@ def main() -> int:
                 args.micro_max_flows,
             )
             summaries.append(summary)
-        baseline_total = sum(row.baseline_adp for row in summaries)
-        best_total = sum(row.best_adp for row in summaries)
-        print(f"[micro-guided] total ADP {baseline_total} -> {best_total}")
+        print_summary_totals("micro-guided", summaries)
         return 0
     if args.small_case_refine:
-        if args.case:
-            cases = [args.case]
-        elif args.range:
-            start = int(args.range[0].removeprefix("ex"))
-            end = int(args.range[1].removeprefix("ex"))
-            cases = [f"ex{i}" for i in range(start, end + 1)]
-        else:
-            cases = ALL_CASES
+        cases = selected_cases_from_args(args)
         summaries: list[CaseSummary] = []
         active_cases = 0
         for case in cases:
@@ -4270,26 +6532,91 @@ def main() -> int:
             if summary.selected_method != "small_case_skipped":
                 active_cases += 1
             summaries.append(summary)
-        baseline_total = sum(row.baseline_adp for row in summaries)
-        best_total = sum(row.best_adp for row in summaries)
         print(f"[small-case] active cases {active_cases}/{len(summaries)}")
-        print(f"[small-case] selected-scope ADP {baseline_total} -> {best_total}")
+        print_summary_totals("small-case", summaries)
+        return 0
+    if args.exact_npn_rescue:
+        cases = selected_cases_from_args(args)
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] exact/NPN rescue")
+            _rows, summary = run_exact_npn_rescue_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                args.npn_max_support,
+                args.npn_max_flows,
+            )
+            summaries.append(summary)
+        print_summary_totals("exact-npn", summaries)
+        return 0
+    if args.transduction_rescue:
+        cases = selected_cases_from_args(args)
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] transduction rescue")
+            _rows, summary = run_transduction_rescue_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                args.transduction_budget,
+                args.seed,
+            )
+            summaries.append(summary)
+        print_summary_totals("transduction", summaries)
+        return 0
+    if args.complement_rescue:
+        cases = selected_cases_from_args(args)
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] complement rescue")
+            _rows, summary = run_complement_rescue_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                args.seed,
+                args.complement_budget,
+                not args.no_bdd,
+            )
+            summaries.append(summary)
+        print_summary_totals("complement", summaries)
+        return 0
+    if args.specialized_generators or args.specialized_generate:
+        cases = selected_cases_from_args(args)
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] specialized structural generators")
+            _rows, summary = run_specialized_generators_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                args.exact_max_inputs,
+            )
+            summaries.append(summary)
+        print_summary_totals("specialized", summaries)
         return 0
     if args.mockturtle_structural or args.mockturtle_case:
         ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
         if not ok:
             print(f"[mockturtle-structural] unavailable, skipping: {error}")
             return 0
-        if args.mockturtle_case:
-            cases = [args.mockturtle_case]
-        elif args.case:
-            cases = [args.case]
-        elif args.range:
-            start = int(args.range[0].removeprefix("ex"))
-            end = int(args.range[1].removeprefix("ex"))
-            cases = [f"ex{i}" for i in range(start, end + 1)]
-        else:
-            cases = ALL_CASES
+        cases = selected_cases_from_args(args, args.mockturtle_case)
         for case in cases:
             print(f"[{case}] mockturtle structural")
             run_mockturtle_structural_case(
@@ -4302,12 +6629,15 @@ def main() -> int:
                 root,
                 args.mockturtle_structural_bin,
                 args.mode,
+                args.mockturtle_max_modes,
+                args.exact_max_inputs,
             )
         return 0
 
     if args.reproduce_best:
         all_results, summaries = run_reproduce_best(args, root)
         write_results_csv(args.logs / "results.csv", all_results)
+        write_pareto_candidates_csv(args.logs / "pareto_candidates.csv", all_results)
         write_summary_csv(args.logs / "summary.csv", summaries)
         if args.report_stats:
             print_report_stats(all_results, summaries)
@@ -4411,6 +6741,7 @@ def main() -> int:
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     write_results_csv(args.logs / "results.csv", all_results)
+    write_pareto_candidates_csv(args.logs / "pareto_candidates.csv", all_results)
     write_summary_csv(args.logs / "summary.csv", summaries)
     if args.report_stats:
         print_report_stats(all_results, summaries)

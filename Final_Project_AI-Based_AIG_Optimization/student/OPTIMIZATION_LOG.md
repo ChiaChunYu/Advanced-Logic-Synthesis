@@ -35,6 +35,7 @@ It connects each commit to the optimizer milestone it introduced.
 | working tree | 2026-05-23 | `feat: add fingerprint-guided mockturtle structural resynthesis` | Added a CMake-built mockturtle structural engine, fingerprint-to-mode mapping, ABC-polished mockturtle candidates, and a final `--reproduce-best` structural stage. |
 | working tree | 2026-05-24 | `feat: add micro-guided per-case ADP refinement` | Added a low-cost all-case refinement stage for small and near-converged cases using guarded resubstitution, low-K mapping, renode, and collapse/factorization flows. |
 | working tree | 2026-05-24 | `feat: refine compact cases with small-circuit flows` | Added a small-case-only refinement package that targets compact or low-ADP outputs with low-K mapping, SOP/factorization, fraiging, and GIA SOP balancing. |
+| working tree | 2026-05-24 | `feat: lower ADP with advanced mockturtle structural modes` | Added cut-level AIG/XAG NPN rewriting, don't-care AIG rewriting, XAG min-MC reduction, MIG Akers cut rewriting, and XMG mixed resubstitution. |
 
 ## 2026-05-21
 
@@ -954,3 +955,532 @@ Total ADP over equivalent cases: 11237685
 
 Compared with `11294764`, this refinement reduced total ADP by `57079` while
 focusing on compact and low-ADP cases.
+
+### Advanced mockturtle structural refinement
+
+- Extended `student/mockturtle_opt/mockturtle_opt.cpp` with deterministic
+  structural modes from the mockturtle investigation:
+
+```text
+cut4_aig_xag_npn
+cut5_aig_xag_npn_depth
+dc_aig_rewrite
+xag_area_minmc
+mig_akers_cut4
+xmg_mixed_resub
+```
+
+- Updated the fingerprint selector in `student/flow_optimizer.py` so:
+  - XOR/affine cases try XAG min-MC and XAG structural rewriting.
+  - Majority/threshold/carry-like cases try Akers-style MIG cut rewriting.
+  - Mixed arithmetic cases try XMG algebraic rewriting and resubstitution.
+  - Mux/high-area cases try depth-preserving larger cuts or don't-care AIG
+    rewriting.
+  - Compact cases try 4-input AIG/XAG NPN cut rewriting.
+- Added this advanced mockturtle pass as the final stage of `--reproduce-best`,
+  after small-case targeted refinement, because the best improvements appear
+  when the structural engine starts from the fully refined AIGs.
+- Full pass command used for the latest result:
+
+```bash
+python3 student/flow_optimizer.py --mockturtle-structural --timeout-per-case 90
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+```
+
+- Representative accepted improvements:
+
+```text
+ex204: 24976 -> 24315
+ex208: 32928 -> 32085
+ex222: 214641 -> 211820
+ex228: 122835 -> 120870
+ex230: 136040 -> 133095
+ex239: 41800 -> 40451
+ex248: 34080 -> 32410
+ex249: 4654 -> 4440
+ex272: 13076 -> 12000
+ex274: 31185 -> 29700
+ex283: 51129 -> 49412
+ex287: 35283 -> 34506
+ex299: 2723448 -> 2722296
+```
+
+### Current verified result after advanced mockturtle structural refinement
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11210243
+```
+
+Compared with `11237685`, this refinement reduced total ADP by `27442`.
+
+## Contest-style Phase 1/2 infrastructure
+
+Implemented the first two steps from `AGENTS.md` without changing the baseline
+`student/optimizer.py`.
+
+### Phase 1: internal Pareto candidate pool
+
+- Added a per-case Pareto candidate pool in `student/flow_optimizer.py`.
+- The optimizer now writes:
+
+```text
+student/logs/pareto_candidates.csv
+```
+
+- Only equivalent candidates enter the pool.
+- The CSV marks the true area/delay Pareto frontier, min-area, min-delay,
+  min-ADP, and final selected candidate.
+- The pool also keeps the best representative from important source families:
+  ABC baseline, BDD/Shannon, SOP/POS/factored SOP, complement synthesis,
+  arithmetic templates, mockturtle XAG/MIG, exact/NPN, and
+  transduction-inspired candidates.
+- Final `output/exNNN.aig` selection remains unchanged: the selected output is
+  still the equivalent candidate with minimum ADP.
+
+Smoke test:
+
+```bash
+python3 student/flow_optimizer.py --case ex200 --max-candidates 2 --timeout-per-case 120 --no-ga --no-bdd
+```
+
+Generated `student/logs/pareto_candidates.csv` with the ABC baseline and the
+current selected `ex200` output.
+
+### Phase 2: exact function recognition
+
+- Added `student/exact_function_recognition.py`.
+- Added:
+
+```bash
+python3 student/flow_optimizer.py --exact-function-report --case ex200
+python3 student/flow_optimizer.py --exact-function-report --all
+```
+
+- The exact detector writes:
+
+```text
+student/logs/exact_function_matches.csv
+```
+
+- Matches are logged with confidence `1.000` only after checking the complete
+  truth table.
+- Current detector coverage includes constants, buffers/inverters, affine and
+  parity outputs, symmetric/threshold/exact-k/one-hot/decoder-like functions,
+  popcount and sorter output bits, comparator bits, adder sum/carry bits,
+  unsigned and signed multiplier bits, square bits, divider quotient bits,
+  divider remainder/modulo-like bits, and integer square-root bits.
+- Input mappings include first-half/second-half, even/odd interleaving,
+  reversed endian orders, swapped operands, and active-support variants.
+
+Smoke test:
+
+```bash
+python3 student/flow_optimizer.py --exact-function-report --case ex200
+```
+
+Result:
+
+```text
+matched rows: 2
+```
+
+`--classify-case ex200` now also prints a quick exact-match summary.
+
+## Contest-style Phase 3/4 infrastructure
+
+Implemented the next two steps from `AGENTS.md` as optional, safety-gated
+passes.  The deterministic `--reproduce-best` recipe is not changed yet; these
+passes can be run independently first and added to the recipe only after they
+show useful improvements.
+
+### Phase 3: exact-match structural generators
+
+- Added exact-match structural generator support in `student/flow_optimizer.py`.
+- New CLI:
+
+```bash
+python3 student/flow_optimizer.py --specialized-generators --case ex255
+python3 student/flow_optimizer.py --specialized-generators --all --timeout-per-case 120
+```
+
+- New log:
+
+```text
+student/logs/specialized_generators.csv
+```
+
+- Implemented BLIF generators for:
+  - affine/parity/simple output functions
+  - popcount output bits
+  - threshold/exact-k/one-hot/sorter bits
+  - adder sum/carry bits
+  - comparator bits
+  - whole-table multiplier, signed multiplier, square, divider quotient, and
+    integer square-root structures
+- Each generated BLIF is converted through ABC, checked against the original
+  truth table, measured for area/delay/ADP, and accepted only if ADP improves.
+
+Smoke tests:
+
+```bash
+python3 student/flow_optimizer.py --specialized-generators --case ex200 --logs student/logs_phase34_smoke --timeout-per-case 120 --exact-max-inputs 12
+python3 student/flow_optimizer.py --specialized-generators --case ex255 --logs student/logs_phase34_smoke --timeout-per-case 180 --exact-max-inputs 12
+```
+
+Results:
+
+```text
+ex200: no complete exact-match structural generator available
+ex255: exact_unsigned_multiplier generated 4 equivalent candidates, current output remained better
+```
+
+### Phase 4: mockturtle structural resynthesis cleanup
+
+- Added exact-match hints to mockturtle mode selection.
+- Added `--mockturtle-max-modes N` so the structural pass can try 1, 2, or 3
+  fingerprint-selected modes without becoming an uncontrolled sweep.
+- Added:
+
+```text
+student/logs/mockturtle_structural_summary.csv
+```
+
+- The summary records base/best area, delay, ADP, mode list, exact type hints,
+  generated candidates, and equivalent candidates.
+
+Smoke tests:
+
+```bash
+python3 student/flow_optimizer.py --mockturtle-case ex200 --mode cut4_aig_xag_npn --mockturtle-max-modes 1 --logs student/logs_phase34_smoke --timeout-per-case 120 --exact-max-inputs 12
+python3 student/flow_optimizer.py --mockturtle-case ex255 --mockturtle-max-modes 3 --logs student/logs_phase34_smoke --timeout-per-case 120 --exact-max-inputs 12
+```
+
+Results:
+
+```text
+ex200: 3/3 mockturtle candidates equivalent, no ADP improvement
+ex255: 9/9 mockturtle candidates equivalent, no ADP improvement
+```
+
+Final safety smoke check:
+
+```bash
+./student/abc -c 'read_truth -xf benchmarks/ex200.truth; st; &get; &cec -t output/ex200.aig'
+./student/abc -c 'read_truth -xf benchmarks/ex255.truth; st; &get; &cec -t output/ex255.aig'
+```
+
+Both reported:
+
+```text
+Networks are equivalent.
+```
+
+## Contest-style Phase 5/6 infrastructure
+
+Implemented the next two steps from `AGENTS.md` as bounded, equivalence-gated
+passes.
+
+### Phase 5: small-support exact/NPN rescue
+
+- Added:
+
+```bash
+python3 student/flow_optimizer.py --exact-npn-rescue --case ex255 --npn-max-support 8
+python3 student/flow_optimizer.py --exact-npn-rescue --all --npn-max-support 6
+```
+
+- New log:
+
+```text
+student/logs/exact_npn_rescue.csv
+```
+
+- The rescue pass generates exact small-support BLIF candidates when the whole
+  multi-output function support is within the configured support bound.
+- It also reports skipped cases when the support is too large.
+- Candidates are reduced with fixed ABC flows and accepted only after full ABC
+  equivalence and lower ADP.
+
+Smoke tests:
+
+```bash
+python3 student/flow_optimizer.py --exact-npn-rescue --case ex200 --logs student/logs_phase56_smoke --timeout-per-case 120 --npn-max-support 6
+python3 student/flow_optimizer.py --exact-npn-rescue --case ex255 --logs student/logs_phase56_smoke4 --timeout-per-case 120 --npn-max-support 8
+```
+
+Results:
+
+```text
+ex200: skipped, largest output support 16 exceeds limit 6
+ex255: generated 4 equivalent exact-cover candidates, current output remained better
+```
+
+### Phase 6: transduction-inspired expansion/reduction
+
+- Added:
+
+```bash
+python3 student/flow_optimizer.py --transduction-rescue --case ex200 --transduction-budget 12 --seed 0
+python3 student/flow_optimizer.py --transduction-rescue --all --transduction-budget 12 --seed 0
+```
+
+- New log:
+
+```text
+student/logs/transduction_rescue.csv
+```
+
+- Implemented safe equivalent wrappers:
+  - `(f & g) | (f & ~g)`
+  - `(f | g) & (f | ~g)`
+  - `mux(g, f, f)`
+  - `~~f`
+- `g` is selected deterministically from high-influence and high-Shannon-score
+  primary inputs.
+- Fixed ABC-generated BLIF continuation handling so multi-line `.inputs` and
+  `.outputs` directives are wrapped correctly.
+
+Accepted improvement:
+
+```text
+ex200: 59534 -> 59517
+```
+
+Full internal verification after the replacement:
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11210226
+```
+
+## Contest-style Phase 7/8 infrastructure
+
+Implemented the next two steps from `AGENTS.md`.
+
+### Phase 7: complement synthesis wrapper
+
+- Added:
+
+```bash
+python3 student/flow_optimizer.py --complement-rescue --case ex200 --complement-budget 16
+python3 student/flow_optimizer.py --complement-rescue --all --complement-budget 16
+```
+
+- New log:
+
+```text
+student/logs/complement_candidates.csv
+```
+
+- Complement rescue now generates complement-first candidates from:
+  - ABC truth synthesis
+  - BDD/Shannon when enabled
+  - SOP/POS/factored SOP when applicable
+  - structural template generators when the complement truth table matches
+- Added `blif_complement` synthesis support: optimize the complement BLIF,
+  write BLIF, invert outputs back to original polarity, convert to AIG, then
+  run full ABC equivalence.
+- Updated the BLIF output wrapper so multi-line ABC `.outputs` continuation
+  directives are handled correctly.
+
+Smoke test:
+
+```bash
+python3 student/flow_optimizer.py --complement-rescue --case ex200 --logs student/logs_phase78_smoke --timeout-per-case 120 --complement-budget 4 --no-bdd
+```
+
+Result:
+
+```text
+ex200: complement candidates were equivalent, current output remained better
+```
+
+### Phase 8: per-case fair contest scheduler
+
+- Added:
+
+```bash
+python3 student/flow_optimizer.py --contest-optimize --seed 0 --time-budget 3600
+```
+
+- New log:
+
+```text
+student/logs/contest_optimize_schedule.csv
+```
+
+- The scheduler visits every selected case by stage rather than ranking only by
+  total ADP:
+  1. exact matching
+  2. base coverage
+  3. complement rescue
+  4. specialized structural generation
+  5. mockturtle structural resynthesis
+  6. exact/NPN rescue
+  7. transduction rescue
+- `case_coverage.csv` now records additional coverage bits:
+  `exact_match_tried`, `specialized_tried`, `mockturtle_tried`,
+  `exact_npn_tried`, and `transduction_tried`.
+
+Smoke test:
+
+```bash
+python3 student/flow_optimizer.py --contest-optimize --case ex200 --logs student/logs_phase78_smoke --time-budget 90 --timeout-per-case 40 --max-candidates 8 --min-candidates 8 --complement-budget 3 --transduction-budget 3 --mockturtle-max-modes 1 --npn-max-support 6 --seed 0
+```
+
+Result:
+
+```text
+schedule stages completed: exact_match, base_coverage, complement, specialized, mockturtle
+ex200 remained equivalent at ADP 59517
+```
+
+## Contest Plan Phase 9-11 Completion
+
+Finished the remaining plan wiring from `AGENTS.md` without changing
+`student/optimizer.py` or rewriting final AIGs.
+
+Added CLI aliases and reproducibility helpers:
+
+```bash
+python3 student/flow_optimizer.py --write-contest-plan
+python3 student/flow_optimizer.py --exact-match-all
+python3 student/flow_optimizer.py --specialized-generate --case ex255
+python3 student/flow_optimizer.py --verify-final
+python3 student/flow_optimizer.py --write-final-summary
+```
+
+What changed:
+
+- `--exact-match-all` is a clear alias for the proof-based exact function
+  matcher.
+- `--specialized-generate` is a clear alias for exact-match structural
+  generation.
+- `--verify-final` verifies the current `output/exNNN.aig` files and refreshes
+  `student/logs/results.csv`, `student/logs/summary.csv`, and
+  `student/logs/pareto_candidates.csv`.
+- `--write-final-summary` also writes `student/logs/final_summary.csv`, which
+  is easier to use in the final report because it combines per-case baseline,
+  current ADP, improvement ratios, selected-method hints, method improvement
+  counts, exact-match counts, equivalent-case count, and total ADP.
+- `student/README.md` and `student/CONTEST_OPT_PLAN.md` now document the new
+  commands.
+
+## Post-Phase 11 Case-Fair Refinement Entry Point
+
+Added a new deterministic optimizer command for the next real improvement pass:
+
+```bash
+python3 student/flow_optimizer.py --case-fair-next-optimize --all --seed 42 --timeout-per-case 30 --time-budget 3600
+```
+
+Purpose:
+
+- Give every selected benchmark a balanced package instead of focusing only on
+  high-ADP cases.
+- Reuse existing verified structural stages in one reproducible command:
+  objective-guided refine, micro-guided refine, small-case refine, complement
+  rescue, and optional mockturtle structural resynthesis.
+- Keep the safety rule unchanged: overwrite `output/exNNN.aig` only when ABC
+  proves equivalence and the ADP is lower.
+
+New log:
+
+```text
+student/logs/case_fair_next_optimize.csv
+```
+
+The command also refreshes final verification logs through
+`--write-final-summary` behavior.
+
+Runtime fix after smoke testing:
+
+- The first all-case attempt exposed that each substage was receiving the full
+  per-case timeout, making the combined command impractically long.
+- `--timeout-per-case` now caps the total package for one case.
+- `--time-budget` now caps the entire case-fair invocation.
+- `case_fair_next_optimize.csv` is checkpointed after every completed case.
+- The fair pass uses a compact deterministic package and divides each case
+  budget across method families, so a single type-guided stage cannot consume
+  the entire case allowance.
+- Candidate counts and per-stage time are deliberately kept small in this
+  post-phase pass; it is a coverage-oriented probe over all cases rather than
+  another unbounded sweep.
+- Removed repeated `type_guided` execution from this follow-up command after
+  testing showed that recomputing full truth-table fingerprints can consume
+  most of a case budget.  The existing main pipeline already applies
+  fingerprint/type-guided synthesis before this final refinement pass.
+- Made mockturtle opt-in under this final follow-up command with
+  `--try-mockturtle`, since mode selection also invokes fingerprint analysis.
+- During the initial attempt, already accepted candidates remained valid; full
+  verification reported `100/100` equivalent and reduced total ADP from
+  `11210226` to `11173589`.
+
+### Current verified result after case-fair follow-up execution
+
+The completed follow-up work retained only ABC-equivalent improvements and
+finished with:
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11165011
+```
+
+Compared with the pre-follow-up result:
+
+```text
+11210226 -> 11165011
+ADP reduction: 45215
+```
+
+The all-case run checkpointed progress through `ex270`; the remaining
+`ex271` through `ex299` range was run afterward and the final full
+`--write-final-summary` verification restored the 100-case report logs.
+
+### Final micro-guided convergence refinement
+
+After the case-fair run, repeated deterministic micro-guided refinement proved
+effective on both large and small cases:
+
+```bash
+python3 student/flow_optimizer.py --micro-guided-refine --all --micro-max-flows 4 --timeout-per-case 20
+python3 student/flow_optimizer.py --write-final-summary
+```
+
+The accepted improvements primarily came from:
+
+- `micro_resub4`: repeated local resubstitution and cleanup.
+- `micro_if3`: compact low-cut remapping for selected cases.
+- `micro_renode`: alternative local representation cleanup where it reduced
+  ADP.
+
+During testing, an older timed-out `case-fair-next-optimize` process was found
+still running in WSL and modifying outputs concurrently.  It was stopped
+before the final clean verification, so the result below has no active
+optimizer process writing to `output/`.
+
+Final verified result:
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 11106756
+```
+
+Improvement relative to the pre-follow-up result:
+
+```text
+11210226 -> 11106756
+ADP reduction: 103470
+```
+
+Reproduction update:
+
+- Added `micro_guided_fixed_point_convergence` as stage 17 of
+  `--reproduce-best`.
+- It runs up to six deterministic all-case `micro_resub4` / `micro_if3` /
+  `micro_renode` convergence passes and stops early when a pass finds no ADP
+  improvement.
+- This is required because `output/` is ignored by Git; the late convergence
+  gains must be regenerated by the submitted command, not merely remain in a
+  local output folder.

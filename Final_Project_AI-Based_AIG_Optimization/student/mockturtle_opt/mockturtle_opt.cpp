@@ -7,6 +7,7 @@
 #include <mockturtle/algorithms/functional_reduction.hpp>
 #include <mockturtle/algorithms/mig_algebraic_rewriting.hpp>
 #include <mockturtle/algorithms/mig_resub.hpp>
+#include <mockturtle/algorithms/node_resynthesis/akers.hpp>
 #include <mockturtle/algorithms/node_resynthesis/sop_factoring.hpp>
 #include <mockturtle/algorithms/node_resynthesis/xag_npn.hpp>
 #include <mockturtle/algorithms/refactoring.hpp>
@@ -14,8 +15,10 @@
 #include <mockturtle/algorithms/xag_balancing.hpp>
 #include <mockturtle/algorithms/xag_optimization.hpp>
 #include <mockturtle/algorithms/xag_resub.hpp>
+#include <mockturtle/algorithms/xag_resub_withDC.hpp>
 #include <mockturtle/algorithms/xmg_algebraic_rewriting.hpp>
 #include <mockturtle/algorithms/xmg_optimization.hpp>
+#include <mockturtle/algorithms/xmg_resub.hpp>
 #include <mockturtle/io/aiger_reader.hpp>
 #include <mockturtle/io/write_aiger.hpp>
 #include <mockturtle/networks/aig.hpp>
@@ -143,6 +146,102 @@ void run_functional_reduction( std::string const& input, std::string const& outp
   write_as_aiger( aig, output );
 }
 
+void run_cut_aig_xag_npn( std::string const& input, std::string const& output, uint32_t cut_size, bool preserve_depth )
+{
+  auto aig = read_aiger_network<mockturtle::aig_network>( input );
+
+  mockturtle::xag_npn_resynthesis<mockturtle::aig_network> cut_resyn;
+  mockturtle::cut_rewriting_params cps;
+  cps.cut_enumeration_ps.cut_size = cut_size;
+  cps.cut_enumeration_ps.cut_limit = cut_size == 4u ? 12u : 8u;
+  cps.preserve_depth = preserve_depth;
+  aig = mockturtle::cut_rewriting( aig, cut_resyn, cps );
+  aig = mockturtle::cleanup_dangling( aig );
+
+  mockturtle::aig_balancing_params bps;
+  bps.fast_mode = true;
+  mockturtle::aig_balance( aig, bps );
+  write_as_aiger( aig, output );
+}
+
+void run_dc_aig_rewrite( std::string const& input, std::string const& output )
+{
+  auto aig = read_aiger_network<mockturtle::aig_network>( input );
+
+  mockturtle::xag_npn_resynthesis<mockturtle::aig_network> cut_resyn;
+  mockturtle::cut_rewriting_params cps;
+  cps.cut_enumeration_ps.cut_size = 4u;
+  cps.cut_enumeration_ps.cut_limit = 8u;
+  cps.use_dont_cares = true;
+  cps.preserve_depth = true;
+  aig = mockturtle::cut_rewriting( aig, cut_resyn, cps );
+  aig = mockturtle::cleanup_dangling( aig );
+
+  mockturtle::sop_factoring<mockturtle::aig_network> sop_resyn;
+  mockturtle::refactoring_params fps;
+  fps.max_pis = 6u;
+  fps.use_dont_cares = true;
+  mockturtle::refactoring( aig, sop_resyn, fps );
+  aig = mockturtle::cleanup_dangling( aig );
+
+  mockturtle::functional_reduction_params frps;
+  frps.max_iterations = 3u;
+  frps.conflict_limit = 100u;
+  mockturtle::functional_reduction( aig, frps );
+  aig = mockturtle::cleanup_dangling( aig );
+
+  mockturtle::aig_balancing_params bps;
+  bps.fast_mode = true;
+  mockturtle::aig_balance( aig, bps );
+  write_as_aiger( aig, output );
+}
+
+void run_xag_area_minmc( std::string const& input, std::string const& output )
+{
+  auto xag = read_aiger_network<mockturtle::xag_network>( input );
+
+  xag = mockturtle::xag_constant_fanin_optimization( xag );
+  xag = mockturtle::xag_dont_cares_optimization( xag );
+  xag = mockturtle::cleanup_dangling( xag );
+
+  mockturtle::resubstitution_params rps;
+  rps.max_pis = 8u;
+  rps.max_inserts = 1u;
+  rps.progress = false;
+  {
+    mockturtle::depth_view depth_xag{ xag };
+    mockturtle::fanout_view fanout_xag{ depth_xag };
+    mockturtle::resubstitution_minmc_withDC( fanout_xag, rps );
+  }
+  xag = mockturtle::cleanup_dangling( xag );
+
+  mockturtle::xag_balancing_params bps;
+  bps.fast_mode = true;
+  bps.minimize_levels = false;
+  mockturtle::xag_balance( xag, bps );
+  write_as_aiger( xag, output );
+}
+
+void run_mig_akers_cut4( std::string const& input, std::string const& output )
+{
+  auto mig = read_aiger_network<mockturtle::mig_network>( input );
+
+  mockturtle::akers_resynthesis<mockturtle::mig_network> resyn;
+  mockturtle::cut_rewriting_params cps;
+  cps.cut_enumeration_ps.cut_size = 4u;
+  cps.cut_enumeration_ps.cut_limit = 8u;
+  cps.preserve_depth = true;
+  mig = mockturtle::cut_rewriting( mig, resyn, cps );
+  mig = mockturtle::cleanup_dangling( mig );
+
+  {
+    mockturtle::depth_view depth_mig{ mig };
+    mockturtle::mig_algebraic_depth_rewriting( depth_mig );
+  }
+  mig = mockturtle::cleanup_dangling( mig );
+  write_as_aiger( mig, output );
+}
+
 void run_xag( std::string const& input, std::string const& output, bool heavy )
 {
   auto xag = read_aiger_network<mockturtle::xag_network>( input );
@@ -207,6 +306,31 @@ void run_xmg( std::string const& input, std::string const& output, bool heavy )
   }
   write_as_aiger( xmg, output );
 }
+
+void run_xmg_mixed_resub( std::string const& input, std::string const& output )
+{
+  auto xmg = read_aiger_network<mockturtle::xmg_network>( input );
+  {
+    mockturtle::depth_view depth_xmg{ xmg };
+    mockturtle::xmg_algebraic_depth_rewriting( depth_xmg );
+  }
+  xmg = mockturtle::cleanup_dangling( xmg );
+
+  mockturtle::resubstitution_params rps;
+  rps.max_pis = 8u;
+  rps.max_inserts = 1u;
+  rps.progress = false;
+  {
+    mockturtle::depth_view depth_xmg{ xmg };
+    mockturtle::fanout_view fanout_xmg{ depth_xmg };
+    mockturtle::xmg_resubstitution( fanout_xmg, rps );
+  }
+  xmg = mockturtle::cleanup_dangling( xmg );
+
+  xmg = mockturtle::xmg_dont_cares_optimization( xmg );
+  xmg = mockturtle::cleanup_dangling( xmg );
+  write_as_aiger( xmg, output );
+}
 } // namespace
 
 int main( int argc, char** argv )
@@ -233,6 +357,18 @@ int main( int argc, char** argv )
       run_xmg( args.input_aig, args.output_aig, true );
     else if ( args.mode == "roundtrip_xmg" )
       run_xmg( args.input_aig, args.output_aig, false );
+    else if ( args.mode == "cut4_aig_xag_npn" )
+      run_cut_aig_xag_npn( args.input_aig, args.output_aig, 4u, false );
+    else if ( args.mode == "cut5_aig_xag_npn_depth" )
+      run_cut_aig_xag_npn( args.input_aig, args.output_aig, 5u, true );
+    else if ( args.mode == "dc_aig_rewrite" )
+      run_dc_aig_rewrite( args.input_aig, args.output_aig );
+    else if ( args.mode == "xag_area_minmc" )
+      run_xag_area_minmc( args.input_aig, args.output_aig );
+    else if ( args.mode == "mig_akers_cut4" )
+      run_mig_akers_cut4( args.input_aig, args.output_aig );
+    else if ( args.mode == "xmg_mixed_resub" )
+      run_xmg_mixed_resub( args.input_aig, args.output_aig );
     else
     {
       std::cerr << "unsupported mode: " << args.mode << "\n";

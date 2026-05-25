@@ -32,6 +32,12 @@ functional_reduction
 roundtrip_xag
 roundtrip_mig
 roundtrip_xmg
+cut4_aig_xag_npn
+cut5_aig_xag_npn_depth
+dc_aig_rewrite
+xag_area_minmc
+mig_akers_cut4
+xmg_mixed_resub
 ```
 
 Unsupported or failed modes exit non-zero and print a short error message.
