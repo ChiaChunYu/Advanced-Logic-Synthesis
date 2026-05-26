@@ -84,7 +84,47 @@ the full truth table instead of only rewriting an existing AIG. The optimizer:
 This structural route produced the largest improvements in the current result,
 including practical-function and LogicNets-style cases.
 
-### 4. Final ADP Refinement
+### 4. Bounded Deep Structural Resynthesis
+
+For high-cost multi-output functions and 16-input/8-output dropped-output
+practical-function shapes, the optimizer also uses ABC `&deepsyn`:
+
+```text
+current equivalent AIG -> fixed-seed LUT map/unmap resynthesis -> ABC polish
+                         -> equivalence/ADP selection
+```
+
+This stage is deterministic (`seed=42`) and bounded to up to two passes of one
+30-second structural iteration per selected case, stopping when a pass makes
+no improvement.  For the dropped-output practical
+shape it additionally tries the two-input LUT structural mode.  It is not a
+random command sweep: candidates are new structures produced by LUT
+decomposition and re-synthesis, and each is independently checked for
+equivalence before replacement.
+
+### 5. Yosys And mockturtle Hybrid Resynthesis
+
+The latest structural stage mixes the installed Yosys and mockturtle engines
+without accepting unverified rewrites:
+
+```text
+current AIG -> ABC symbol-free AIGER bridge -> Yosys AIG remap
+            -> fixed ABC polish -> optional fingerprint-selected mockturtle
+            -> fixed ABC polish -> equivalence/ADP selection
+```
+
+The symbol-free bridge is required because a direct Yosys AIGER round trip
+reorders the named primary inputs in these benchmark files.  Removing symbols
+before Yosys preserves the positional interface checked against the truth
+table.
+
+Yosys uses one fixed `abc -g aig` structural remap.  mockturtle is only
+invoked from an improved Yosys seed and only in modes selected by the
+fingerprint classifier.  Independent mockturtle candidates can be generated
+in parallel with `--mockturtle-workers N`; the candidate order and final
+selection remain deterministic.
+
+### 6. Final ADP Refinement
 
 Equivalent candidates are compared by ADP. Selected outputs may then receive
 fixed deterministic refinement packages:
@@ -108,11 +148,10 @@ Verified result:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 10771329
+Total ADP over equivalent cases: 10667043
 ```
 
-Representative structural improvements from the new `&ttopt` /
-level-preserving transduction path:
+Representative improvements from the structural synthesis paths:
 
 ```text
 ex242: 50578  -> 30096
@@ -125,9 +164,23 @@ ex281: 31980  -> 22057
 ex282: 38283  -> 30696
 ex284: 57122  -> 41300
 ex287: 33462  -> 25023
+ex243: 82016  -> 71106
+ex250: 63525  -> 51568
+ex251: 85316  -> 64932
+ex252: 51714  -> 43550
+ex253: 7707   -> 3634
+ex243: 71106  -> 63000
+ex250: 51568  -> 51436
+ex251: 64932  -> 64722
+ex298: 540708 -> 518640
+ex299: 2711688 -> 2708256
 ```
 
-The detailed history of improvements is recorded in `OPTIMIZATION_LOG.md`,
+The later `ex243` and `ex250`-`ex253` improvements above came from bounded
+`&deepsyn` plus final micro refinement.  The final `ex243`, `ex250`, `ex251`,
+`ex298`, and `ex299` reductions include the Yosys/mockturtle hybrid seed and
+its deterministic final cleanup.  The detailed history is recorded in
+`OPTIMIZATION_LOG.md`,
 not in this README.
 
 ## Reproduce The Result
@@ -146,7 +199,9 @@ bash student/reproduce_best.sh
 It runs the deterministic synthesis recipe, writes AIG files to `output/`, and
 then runs the evaluator. The complete flow is intentionally long because it
 includes all-case synthesis, structural resynthesis, equivalence checks, and
-final convergence passes.
+final convergence passes.  The recipe includes the adaptive bounded
+`&deepsyn` stage for remaining expensive multi-output structures and the safe
+Yosys/mockturtle hybrid structural stage.
 
 To inspect the fixed recipe:
 
@@ -183,6 +238,16 @@ python3 student/flow_optimizer.py --micro-guided-refine --all \
   --micro-max-flows 4 --timeout-per-case 30 \
   --abc student/abc --benchmarks benchmarks --output output --logs student/logs
 
+python3 student/flow_optimizer.py --deepsyn-structural --range ex250 ex254 \
+  --seed 42 --deepsyn-iterations 1 --deepsyn-seconds 30 \
+  --timeout-per-case 100 \
+  --abc student/abc --benchmarks benchmarks --output output --logs student/logs
+
+python3 student/flow_optimizer.py --hybrid-structural --all \
+  --yosys-bin yosys --mockturtle-workers 2 --mockturtle-max-modes 2 \
+  --timeout-per-case 90 \
+  --abc student/abc --benchmarks benchmarks --output output --logs student/logs
+
 python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
 ```
 
@@ -205,6 +270,8 @@ student/logs/results.csv
 student/logs/summary.csv
 student/logs/final_summary.csv
 student/logs/ttopt_structural.csv
+student/logs/deepsyn_structural.csv
+student/logs/hybrid_structural.csv
 student/logs/classification.csv
 student/logs/exact_function_matches.csv
 ```
@@ -214,6 +281,21 @@ student/logs/exact_function_matches.csv
 ```text
 case,input_support,output_group,rounds,flow_name,flow_commands,
 generated,equivalent,area,delay,adp,improved,selected,error
+```
+
+`deepsyn_structural.csv` records the fixed-seed LUT map/unmap candidates:
+
+```text
+case,variant,seed,iterations,search_seconds,flow_name,flow_commands,
+generated,equivalent,area,delay,adp,improved,selected,error
+```
+
+`hybrid_structural.csv` records safe Yosys remaps and conditional
+Yosys-then-mockturtle candidates:
+
+```text
+case,chain,mode,flow_name,flow_commands,generated,equivalent,
+area,delay,adp,improved,selected,error
 ```
 
 ## Useful Diagnostic Commands

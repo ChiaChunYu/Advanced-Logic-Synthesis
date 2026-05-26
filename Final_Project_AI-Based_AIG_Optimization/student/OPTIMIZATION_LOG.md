@@ -1532,3 +1532,136 @@ Compared with the previous verified result:
 11106756 -> 10771329
 ADP reduction: 335427
 ```
+
+### Bounded `&deepsyn` LUT Map/Unmap Structural Resynthesis
+
+- Diagnosed the remaining gap against `reference_result.csv`: the largest
+  unresolved cases are practical multi-output functions and LogicNets-style
+  functions, where reducing area through new sharing is more important than
+  applying additional rewrite command portfolios.
+- Confirmed from the public IWLS benchmark description that the arithmetic
+  family includes permuted/dropped-output practical functions and the later
+  family contains LogicNets neuron functions.
+- Probed official-style `collapse; sop; fx; strash`, deeper `&ttopt`, and
+  non-level-preserving transduction.  These candidates were equivalent but did
+  not lower ADP, so they were not selected as the new path.
+- Found that the provided ABC binary supports `&deepsyn`, a fixed-seed LUT
+  map/unmap structural resynthesis algorithm.  Added
+  `--deepsyn-structural`, `--deepsyn-iterations`, and `--deepsyn-seconds` to
+  `student/flow_optimizer.py`.
+- Added `student/logs/deepsyn_structural.csv` to record the structural variant,
+  seed, runtime bound, post-polish result, equivalence, ADP, and selection.
+- The new stage uses up to two passes of one fixed-seed (`42`) 30-second
+  structural iteration, stopping when a pass no longer improves ADP, then
+  compares a small fixed post-polish set.  For 16-input/8-output
+  dropped-output practical-function shapes it also tries the two-input LUT
+  structural mode because that variant was measurably better on `ex250` and
+  `ex251`.
+- Added the bounded fixed-point `&deepsyn` step as stage 18 of the deterministic
+  `--reproduce-best` recipe; micro fixed-point convergence is now stage 19.
+- Fixed `--classify-case --exact-max-inputs N` so the requested exact detector
+  limit is used instead of an internal fixed limit.
+
+Accepted improvements from this structural stage and its final deterministic
+micro refinement include:
+
+```text
+ex243: 82016   -> 71106
+ex250: 63525   -> 51568
+ex251: 85316   -> 64932
+ex252: 51714   -> 43550
+ex253: 7707    -> 3634
+ex299: 2716728 -> 2711688
+```
+
+Small additional verified reductions were accepted for `ex207`, `ex227`,
+`ex292`, and `ex298`.
+
+Verified result after the new architecture-level step:
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 10710541
+```
+
+Compared with the previous verified result:
+
+```text
+10771329 -> 10710541
+ADP reduction: 60788
+```
+
+Compared with `reference_result.csv`, the remaining gap is still significant:
+
+```text
+Current total ADP:   10710541
+Reference total ADP:  6696028
+Ratio:                  1.5995x
+```
+
+The largest remaining gaps are still `ex299` and `ex297`, so reaching the
+reference level will require a stronger structure generator for the
+LogicNets-style family rather than additional ABC polish.
+
+### Safe Yosys And Parallel mockturtle Hybrid Structural Resynthesis
+
+- Confirmed that Yosys 0.33 is available in WSL and that the existing
+  `--reproduce-best` recipe already runs mockturtle structural stages before
+  the previously added ABC `&deepsyn` stage.
+- Tested direct Yosys AIGER round-trips and rejected them: Yosys reordered
+  named benchmark primary inputs (`pi00` moved behind `pi15`), causing ABC
+  equivalence failure even when reported area was smaller.
+- Added a safe bridge that first writes a symbol-free AIGER with ABC, then
+  invokes one deterministic Yosys AIG remap:
+
+```text
+ABC symbol-free write_aiger -> Yosys techmap/opt/abc -g aig/aigmap
+                             -> fixed ABC polish -> ABC equivalence gate
+```
+
+- Added `--hybrid-structural`, `--yosys-bin`, and `--mockturtle-workers`.
+  When Yosys finds a lower-ADP equivalent seed, fingerprint-selected
+  mockturtle structural modes are generated concurrently with a bounded worker
+  count, then evaluated in deterministic order through ABC polish and full
+  equivalence checking.
+- Added `student/logs/hybrid_structural.csv` and inserted the new stage as
+  stage 19 of `--reproduce-best`; final micro convergence is now stage 20.
+- Verified that the mixed topology path beats either a plain Yosys probe or
+  the existing structure on representative cases.  For example, the hybrid
+  candidate reduced `ex243` delay from 21 to 18 while retaining equivalence.
+
+Selected hybrid structural improvements include:
+
+```text
+ex207: 737495 -> 736989
+ex227: 853576 -> 853070
+ex243: 71106  -> 63000
+ex250: 51568  -> 51436
+ex251: 64932  -> 64722
+ex287: 25023  -> 23886
+ex298: 540708 -> 524480
+```
+
+The deterministic cleanup following these structural candidates further
+reduced cases including `ex298` and `ex299`.  The fixed final output checkpoint
+was verified with ABC:
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 10667043
+```
+
+Compared with the result before this hybrid structural stage:
+
+```text
+10710541 -> 10667043
+ADP reduction: 43498
+```
+
+Compared with `reference_result.csv`:
+
+```text
+Current total ADP:   10667043
+Reference total ADP:  6696028
+Ratio:                  1.5930x
+```

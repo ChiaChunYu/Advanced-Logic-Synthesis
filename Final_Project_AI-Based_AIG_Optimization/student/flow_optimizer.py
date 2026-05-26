@@ -18,6 +18,7 @@ import shutil
 import subprocess
 import time
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -193,6 +194,18 @@ TTOPT_STRUCTURAL_POLISH_FLOWS = [
     PostFlow("ttopt_area", "strash; dc2; balance"),
 ]
 
+DEEPSYN_STRUCTURAL_POLISH_FLOWS = [
+    PostFlow("deepsyn_base", ""),
+    PostFlow("deepsyn_area", "strash; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("deepsyn_delay", "strash; balance; rewrite; balance; refactor; balance"),
+]
+
+HYBRID_YOSYS_POLISH_FLOWS = [
+    PostFlow("yosys_base", ""),
+    PostFlow("yosys_area", "strash; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("yosys_delay", "strash; balance; rewrite; balance; refactor; balance"),
+]
+
 EXACT_NPN_RESCUE_FLOWS = [
     PostFlow("npn_identity", ""),
     PostFlow("npn_area", "strash; collapse; sop; fx; strash; rewrite -z; refactor -z; dc2; balance"),
@@ -336,6 +349,13 @@ REPRODUCE_SMALL_CASE_MAX_FLOWS = 5
 REPRODUCE_SMALL_CASE_AREA_THRESHOLD = 2500
 REPRODUCE_SMALL_CASE_ADP_THRESHOLD = 50000
 REPRODUCE_TTOPT_STRUCTURAL_TIMEOUT = 150
+REPRODUCE_DEEPSYN_STRUCTURAL_TIMEOUT = 75
+REPRODUCE_DEEPSYN_STRUCTURAL_SECONDS = 30
+REPRODUCE_DEEPSYN_STRUCTURAL_PASSES = 2
+REPRODUCE_DEEPSYN_MIN_ADP = 50000
+REPRODUCE_DEEPSYN_MIN_AREA = 2500
+REPRODUCE_HYBRID_STRUCTURAL_TIMEOUT = 90
+REPRODUCE_HYBRID_WORKERS = 2
 REPRODUCE_RECIPE = [
     (
         "1",
@@ -432,6 +452,26 @@ REPRODUCE_RECIPE = [
     ),
     (
         "18",
+        "bounded_deepsyn_structural_resynthesis",
+        "Apply deterministic LUT map/unmap structural resynthesis to remaining high-cost multi-output circuits.",
+        (
+            f"seed={REPRODUCE_SEED}, search_seconds={REPRODUCE_DEEPSYN_STRUCTURAL_SECONDS}, "
+            f"adp_threshold={REPRODUCE_DEEPSYN_MIN_ADP}, area_threshold={REPRODUCE_DEEPSYN_MIN_AREA}, "
+            f"max_passes={REPRODUCE_DEEPSYN_STRUCTURAL_PASSES}, "
+            "plus 16-input/8-output dropped-output practical-function shapes"
+        ),
+    ),
+    (
+        "19",
+        "yosys_mockturtle_hybrid_structural",
+        "Use safe symbol-free AIGER bridging into Yosys AIG remapping, then try fingerprint-selected mockturtle modes only from improved Yosys topology.",
+        (
+            f"all cases, timeout_per_case={REPRODUCE_HYBRID_STRUCTURAL_TIMEOUT}, "
+            f"mockturtle_workers={REPRODUCE_HYBRID_WORKERS}, ABC equivalence checked"
+        ),
+    ),
+    (
+        "20",
         "micro_guided_fixed_point_convergence",
         "Repeat the deterministic low-cost resubstitution/remapping package after all structural generators have settled.",
         (
@@ -2602,6 +2642,50 @@ def append_ttopt_structural_csv(path: Path, rows: list[dict[str, object]]) -> No
             writer.writerow({name: row.get(name, "") for name in fieldnames})
 
 
+def append_deepsyn_structural_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "case",
+        "variant",
+        "seed",
+        "iterations",
+        "search_seconds",
+        "flow_name",
+        "flow_commands",
+        "generated",
+        "equivalent",
+        "area",
+        "delay",
+        "adp",
+        "improved",
+        "selected",
+        "error",
+    ]
+    if path.is_file():
+        with path.open("r", newline="", encoding="utf-8") as handle:
+            existing_values = list(csv.reader(handle))
+        if existing_values and existing_values[0] != fieldnames:
+            migrated: list[dict[str, object]] = []
+            for values in existing_values[1:]:
+                if len(values) == len(fieldnames) - 1:
+                    values = values[:1] + ["standard"] + values[1:]
+                if len(values) == len(fieldnames):
+                    migrated.append(dict(zip(fieldnames, values)))
+            with path.open("w", newline="", encoding="utf-8") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in migrated + rows:
+                    writer.writerow({name: row.get(name, "") for name in fieldnames})
+            return
+    exists = path.is_file()
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
 def append_exact_npn_rescue_csv(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.is_file()
@@ -3497,6 +3581,452 @@ def run_ttopt_structural_case(
             f"ttopt_structural/o{selected_row.get('output_group')}/{selected_row.get('flow_name')}"
             if selected_row is not None
             else "ttopt_structural/no_improvement"
+        ),
+    )
+    return rows, summary
+
+
+def should_run_deepsyn_structural(
+    table: TruthTable,
+    area: int,
+    adp: int,
+    min_adp: int = REPRODUCE_DEEPSYN_MIN_ADP,
+    min_area: int = REPRODUCE_DEEPSYN_MIN_AREA,
+) -> bool:
+    """Select costly multi-output functions for bounded structural rebuilding."""
+    dropped_output_practical_shape = table.num_inputs == 16 and table.num_outputs == 8
+    return table.num_outputs > 1 and (
+        dropped_output_practical_shape or adp >= min_adp or area >= min_area
+    )
+
+
+def run_deepsyn_structural_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    seed: int,
+    iterations: int,
+    search_seconds: int,
+) -> tuple[list[dict[str, object]], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    table = read_truth(truth)
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        raise RuntimeError(f"missing existing AIG: {source}")
+
+    tmp = logs / "tmp_deepsyn_structural" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    best_area, best_delay, best_adp = base_area, base_delay, base_adp
+    best_aig: Path | None = None
+    rows: list[dict[str, object]] = []
+    deadline = time.monotonic() + timeout_per_case
+    actual_iterations = max(1, iterations)
+    actual_seconds = max(1, min(search_seconds, max(1, timeout_per_case - 10)))
+    actual_seed = seed % 101
+    variants = [("standard", "")]
+    if table.num_inputs == 16 and table.num_outputs == 8:
+        variants.append(("two_input_lut", "-t"))
+
+    for variant, option in variants:
+        raw_aig = tmp / f"{case}_deepsyn_{variant}_i{actual_iterations}_t{actual_seconds}_s{actual_seed}.aig"
+        option_text = f" {option}" if option else ""
+        common_commands = (
+            f"&deepsyn -I {actual_iterations} -T {actual_seconds} -S {actual_seed} -o{option_text}; "
+            "&put; strash; dc2; balance"
+        )
+        generation_error = ""
+        try:
+            remaining = max(1, int(deadline - time.monotonic()))
+            run_abc(
+                abc,
+                f"read {abc_path(source, root)}; &get; {common_commands}; "
+                f"write_aiger -s {abc_path(raw_aig, root)}",
+                min(remaining, actual_seconds * actual_iterations + 30),
+                root,
+            )
+        except subprocess.TimeoutExpired:
+            generation_error = "deepsyn timeout"
+        except Exception as exc:
+            generation_error = str(exc)[:500]
+
+        for index, flow in enumerate(DEEPSYN_STRUCTURAL_POLISH_FLOWS):
+            row: dict[str, object] = {
+                "case": case,
+                "variant": variant,
+                "seed": actual_seed,
+                "iterations": actual_iterations,
+                "search_seconds": actual_seconds,
+                "flow_name": flow.name,
+                "flow_commands": f"{common_commands}; {flow.commands}".strip("; "),
+                "generated": 0,
+                "equivalent": 0,
+                "improved": 0,
+                "selected": 0,
+                "error": generation_error,
+            }
+            if generation_error or not raw_aig.is_file():
+                rows.append(row)
+                continue
+            candidate_aig = raw_aig
+            if flow.commands:
+                candidate_aig = tmp / f"{case}_{variant}_{index:02d}_{flow.name}.aig"
+                try:
+                    remaining = max(1, int(deadline - time.monotonic()))
+                    polish_aig(abc, raw_aig, flow, candidate_aig, min(remaining, 90), root)
+                except subprocess.TimeoutExpired:
+                    row["error"] = "post-polish timeout"
+                    rows.append(row)
+                    continue
+                except Exception as exc:
+                    row["error"] = str(exc)[:500]
+                    rows.append(row)
+                    continue
+            row["generated"] = 1
+            try:
+                remaining = max(1, int(deadline - time.monotonic()))
+                equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+                row["equivalent"] = int(equivalent)
+                if not equivalent:
+                    row["error"] = "not equivalent"
+                    rows.append(row)
+                    continue
+                area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                improved = adp < best_adp
+                row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "error": ""})
+                if improved:
+                    best_area, best_delay, best_adp = area, delay, adp
+                    best_aig = candidate_aig
+            except subprocess.TimeoutExpired:
+                row["error"] = "verification timeout"
+            except Exception as exc:
+                row["error"] = str(exc)[:500]
+            rows.append(row)
+
+    selected_row: dict[str, object] | None = None
+    if best_aig is not None and best_adp < base_adp:
+        shutil.copyfile(best_aig, source)
+        for row in rows:
+            if row.get("adp") == best_adp:
+                row["selected"] = 1
+                selected_row = row
+                break
+
+    append_deepsyn_structural_csv(logs / "deepsyn_structural.csv", rows)
+    if best_adp < base_adp:
+        print(f"[{case}] deepsyn structural improved ADP {base_adp} -> {best_adp}")
+    else:
+        print(f"[{case}] deepsyn structural kept current ADP {base_adp}")
+
+    summary = CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best_area,
+        best_delay=best_delay,
+        best_adp=best_adp,
+        improvement_ratio=base_adp / best_adp if best_adp else 0.0,
+        selected_method=(
+            f"deepsyn_structural/{selected_row.get('variant')}/{selected_row.get('flow_name')}"
+            if selected_row is not None
+            else "deepsyn_structural/no_improvement"
+        ),
+    )
+    return rows, summary
+
+
+def resolve_yosys_binary(yosys_bin: Path) -> tuple[Path | None, str]:
+    if yosys_bin.is_file():
+        return yosys_bin, ""
+    resolved = shutil.which(str(yosys_bin))
+    if resolved:
+        return Path(resolved), ""
+    return None, f"Yosys executable not found: {yosys_bin}"
+
+
+def run_yosys_structural_opt(
+    yosys_bin: Path,
+    abc: Path,
+    source_aig: Path,
+    out_aig: Path,
+    timeout: int,
+    root: Path,
+) -> None:
+    """Remap an AIG through Yosys while preserving the original CI order.
+
+    Yosys sorts AIGER symbol-named inputs when round-tripping these benchmarks.
+    Stripping symbols with ABC first preserves the positional truth-table
+    interface that the evaluator checks.
+    """
+    out_aig.parent.mkdir(parents=True, exist_ok=True)
+    symbol_free_aig = out_aig.with_suffix(".nosym_input.aig")
+    run_abc(
+        abc,
+        f"read {abc_path(source_aig, root)}; write_aiger {abc_path(symbol_free_aig, root)}",
+        min(timeout, 120),
+        root,
+    )
+    script = (
+        f"read_aiger {abc_path(symbol_free_aig, root)}; "
+        "techmap; opt; abc -g aig; aigmap; opt_clean; "
+        f"write_aiger {abc_path(out_aig, root)}"
+    )
+    result = subprocess.run(
+        [str(yosys_bin), "-q", "-p", script],
+        cwd=root,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=timeout,
+    )
+    if result.returncode != 0:
+        raise RuntimeError((result.stderr or result.stdout or "Yosys structural remap failed").strip())
+
+
+def append_hybrid_structural_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "case",
+        "chain",
+        "mode",
+        "flow_name",
+        "flow_commands",
+        "generated",
+        "equivalent",
+        "area",
+        "delay",
+        "adp",
+        "improved",
+        "selected",
+        "error",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
+def run_hybrid_structural_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    yosys_bin: Path,
+    mockturtle_bin: Path | None,
+    mockturtle_workers: int,
+    mockturtle_max_modes: int,
+    exact_max_inputs: int,
+) -> tuple[list[dict[str, object]], CaseSummary]:
+    """Try Yosys remapping, then parallel mockturtle resynthesis from a new winner."""
+    truth = benchmarks / f"{case}.truth"
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        raise RuntimeError(f"missing existing AIG: {source}")
+    tmp = logs / "tmp_hybrid_structural" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    best_area, best_delay, best_adp = base_area, base_delay, base_adp
+    best_aig: Path | None = None
+    selected_row: dict[str, object] | None = None
+    rows: list[dict[str, object]] = []
+    deadline = time.monotonic() + timeout_per_case
+
+    raw_yosys = tmp / f"{case}_yosys_aig_raw.aig"
+    try:
+        run_yosys_structural_opt(
+            yosys_bin,
+            abc,
+            source,
+            raw_yosys,
+            max(1, min(timeout_per_case, int(deadline - time.monotonic()))),
+            root,
+        )
+        for flow in HYBRID_YOSYS_POLISH_FLOWS:
+            remaining = max(1, int(deadline - time.monotonic()))
+            candidate_aig = raw_yosys if not flow.commands else tmp / f"{case}_{flow.name}.aig"
+            row: dict[str, object] = {
+                "case": case,
+                "chain": "yosys",
+                "mode": "aig_remap",
+                "flow_name": flow.name,
+                "flow_commands": flow.commands,
+                "generated": 1,
+                "equivalent": 0,
+                "improved": 0,
+                "selected": 0,
+                "error": "",
+            }
+            try:
+                if flow.commands:
+                    polish_aig(abc, raw_yosys, flow, candidate_aig, min(remaining, 90), root)
+                equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+                row["equivalent"] = int(equivalent)
+                if not equivalent:
+                    row["error"] = "not equivalent"
+                else:
+                    area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                    improved = adp < best_adp
+                    row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved)})
+                    if improved:
+                        best_area, best_delay, best_adp = area, delay, adp
+                        best_aig = candidate_aig
+                        selected_row = row
+            except subprocess.TimeoutExpired:
+                row["error"] = "Yosys candidate check timeout"
+            except Exception as exc:
+                row["error"] = str(exc)[:500]
+            rows.append(row)
+    except subprocess.TimeoutExpired:
+        rows.append(
+            {
+                "case": case,
+                "chain": "yosys",
+                "mode": "aig_remap",
+                "generated": 0,
+                "equivalent": 0,
+                "improved": 0,
+                "selected": 0,
+                "error": "Yosys generation timeout",
+            }
+        )
+    except Exception as exc:
+        rows.append(
+            {
+                "case": case,
+                "chain": "yosys",
+                "mode": "aig_remap",
+                "generated": 0,
+                "equivalent": 0,
+                "improved": 0,
+                "selected": 0,
+                "error": str(exc)[:500],
+            }
+        )
+
+    # Only spend mockturtle effort when Yosys exposes a genuinely better seed.
+    if best_aig is not None and best_adp < base_adp and mockturtle_bin is not None:
+        fingerprint = fingerprint_case(truth)
+        exact_types = exact_type_hints_for_mockturtle(
+            exact_matches_for_truth(truth, max_expensive_inputs=exact_max_inputs)
+        )
+        modes, fingerprint_reason = select_structural_mockturtle_modes(
+            fingerprint, best_area, best_delay, best_adp, exact_types, mockturtle_max_modes
+        )
+
+        def generate_mode(mode: str) -> tuple[str, Path, str]:
+            raw_aig = tmp / f"{case}_yosys_then_{mode}_raw.aig"
+            try:
+                remaining = max(1, int(deadline - time.monotonic()))
+                run_structural_mockturtle_opt(
+                    mockturtle_bin, truth, best_aig, raw_aig, mode, min(remaining, 180), root
+                )
+                return mode, raw_aig, ""
+            except Exception as exc:
+                return mode, raw_aig, str(exc)[:500]
+
+        generated: dict[str, tuple[Path, str]] = {}
+        workers = max(1, min(mockturtle_workers, len(modes)))
+        if workers > 1 and len(modes) > 1:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {executor.submit(generate_mode, mode): mode for mode in modes}
+                for future in as_completed(futures):
+                    mode, raw_aig, error = future.result()
+                    generated[mode] = (raw_aig, error)
+        else:
+            for mode in modes:
+                _mode, raw_aig, error = generate_mode(mode)
+                generated[_mode] = (raw_aig, error)
+
+        for mode in modes:
+            raw_aig, error = generated[mode]
+            if error:
+                rows.append(
+                    {
+                        "case": case,
+                        "chain": "yosys_then_mockturtle",
+                        "mode": mode,
+                        "flow_name": "",
+                        "flow_commands": fingerprint_reason,
+                        "generated": 0,
+                        "equivalent": 0,
+                        "improved": 0,
+                        "selected": 0,
+                        "error": error,
+                    }
+                )
+                continue
+            for flow in MOCKTURTLE_STRUCTURAL_POLISH_FLOWS:
+                candidate_aig = tmp / f"{case}_yosys_then_{mode}_{flow.name}.aig"
+                row = {
+                    "case": case,
+                    "chain": "yosys_then_mockturtle",
+                    "mode": mode,
+                    "flow_name": flow.name,
+                    "flow_commands": flow.commands,
+                    "generated": 1,
+                    "equivalent": 0,
+                    "improved": 0,
+                    "selected": 0,
+                    "error": "",
+                }
+                try:
+                    remaining = max(1, int(deadline - time.monotonic()))
+                    polish_aig(abc, raw_aig, flow, candidate_aig, min(remaining, 90), root)
+                    equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+                    row["equivalent"] = int(equivalent)
+                    if not equivalent:
+                        row["error"] = "not equivalent"
+                    else:
+                        area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                        improved = adp < best_adp
+                        row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved)})
+                        if improved:
+                            best_area, best_delay, best_adp = area, delay, adp
+                            best_aig = candidate_aig
+                            selected_row = row
+                except Exception as exc:
+                    row["error"] = str(exc)[:500]
+                rows.append(row)
+
+    if best_aig is not None and best_adp < base_adp:
+        shutil.copyfile(best_aig, source)
+        if selected_row is not None:
+            selected_row["selected"] = 1
+        print(f"[{case}] hybrid structural improved ADP {base_adp} -> {best_adp} ({best_area}/{best_delay})")
+    else:
+        print(f"[{case}] hybrid structural kept current ADP {base_adp}")
+
+    append_hybrid_structural_csv(logs / "hybrid_structural.csv", rows)
+    summary = CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best_area,
+        best_delay=best_delay,
+        best_adp=best_adp,
+        improvement_ratio=base_adp / best_adp if best_adp else 0.0,
+        selected_method=(
+            f"{selected_row.get('chain')}/{selected_row.get('mode')}/{selected_row.get('flow_name')}"
+            if selected_row is not None
+            else "hybrid_structural/no_improvement"
         ),
     )
     return rows, summary
@@ -5612,7 +6142,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
     write_reproduce_recipe(args.logs)
     print(format_reproduce_recipe())
     print("")
-    print("[reproduce] stage 1/18: full hybrid synthesis search")
+    print("[reproduce] stage 1/20: full hybrid synthesis search")
     for case in ALL_CASES:
         print(f"[{case}] optimizing")
         rows, summary = optimize_case(
@@ -5634,7 +6164,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     for range_index, (start_case, end_case) in enumerate(REPRODUCE_ARITHMETIC_RANGES, start=2):
-        print(f"[reproduce] stage {range_index}/18: focused arithmetic range {start_case}-{end_case}")
+        print(f"[reproduce] stage {range_index}/20: focused arithmetic range {start_case}-{end_case}")
         for case in inclusive_cases(start_case, end_case):
             print(f"[{case}] optimizing focused range")
             rows, summary = optimize_case(
@@ -5656,7 +6186,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 5/18: focused divider quotient range "
+        f"[reproduce] stage 5/20: focused divider quotient range "
         f"{REPRODUCE_DIVIDER_RANGE[0]}-{REPRODUCE_DIVIDER_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_DIVIDER_RANGE):
@@ -5680,7 +6210,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 6/18: focused square-root range "
+        f"[reproduce] stage 6/20: focused square-root range "
         f"{REPRODUCE_SQRT_RANGE[0]}-{REPRODUCE_SQRT_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_SQRT_RANGE):
@@ -5703,7 +6233,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 7/18: focused diagnosis-driven rescue cases")
+    print("[reproduce] stage 7/20: focused diagnosis-driven rescue cases")
     for case in REPRODUCE_RESCUE_CASES:
         print(f"[{case}] optimizing focused rescue case")
         rows, summary = optimize_case(
@@ -5726,7 +6256,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 8/18: equivalence-checked polish passes")
+    print("[reproduce] stage 8/20: equivalence-checked polish passes")
     for pass_index in range(REPRODUCE_POLISH_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[polish] pass {pass_index + 1}/{REPRODUCE_POLISH_PASSES}")
@@ -5754,7 +6284,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[polish] converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 9/18: deterministic all-case refinement package")
+    print("[reproduce] stage 9/20: deterministic all-case refinement package")
     for pass_index in range(REPRODUCE_SWEEP_PASSES):
         pass_summaries = []
         print(f"[refine] all cases pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
@@ -5808,7 +6338,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[refine] focused range converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 10/18: final all-case deterministic refinement package")
+    print("[reproduce] stage 10/20: final all-case deterministic refinement package")
     for pass_index in range(REPRODUCE_FINAL_SWEEP_PASSES):
         pass_summaries = []
         print(f"[refine] final all cases pass {pass_index + 1}/{REPRODUCE_FINAL_SWEEP_PASSES}")
@@ -5836,7 +6366,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[refine] final all-case package converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 11/18: fingerprint-guided mockturtle structural resynthesis")
+    print("[reproduce] stage 11/20: fingerprint-guided mockturtle structural resynthesis")
     ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
     if not ok:
         print(f"[mockturtle-structural] unavailable, skipping: {error}")
@@ -5855,7 +6385,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 None,
             )
 
-    print("[reproduce] stage 12/18: final type-guided circuit-family refinement")
+    print("[reproduce] stage 12/20: final type-guided circuit-family refinement")
     for case in ALL_CASES:
         print(f"[{case}] type-guided refine")
         run_type_guided_refine_case(
@@ -5869,7 +6399,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_TYPE_GUIDED_MAX_FLOWS,
         )
 
-    print("[reproduce] stage 13/18: objective-guided area/delay/balanced refinement")
+    print("[reproduce] stage 13/20: objective-guided area/delay/balanced refinement")
     for case in ALL_CASES:
         print(f"[{case}] objective-guided refine")
         run_objective_guided_refine_case(
@@ -5883,7 +6413,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_OBJECTIVE_MAX_PER_FAMILY,
         )
 
-    print("[reproduce] stage 14/18: micro-guided per-case refinement")
+    print("[reproduce] stage 14/20: micro-guided per-case refinement")
     for case in ALL_CASES:
         print(f"[{case}] micro-guided refine")
         run_micro_guided_refine_case(
@@ -5897,7 +6427,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_MICRO_MAX_FLOWS,
         )
 
-    print("[reproduce] stage 15/18: small-case targeted refinement")
+    print("[reproduce] stage 15/20: small-case targeted refinement")
     for case in ALL_CASES:
         print(f"[{case}] small-case refine")
         run_small_case_refine_case(
@@ -5913,7 +6443,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_SMALL_CASE_ADP_THRESHOLD,
         )
 
-    print("[reproduce] stage 16/18: final advanced mockturtle structural refinement")
+    print("[reproduce] stage 16/20: final advanced mockturtle structural refinement")
     ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
     if not ok:
         print(f"[mockturtle-structural] unavailable, skipping: {error}")
@@ -5932,7 +6462,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 None,
             )
 
-    print("[reproduce] stage 17/18: truth-table structural resynthesis and level-preserving transduction")
+    print("[reproduce] stage 17/20: truth-table structural resynthesis and level-preserving transduction")
     for case in ALL_CASES:
         print(f"[{case}] ttopt structural")
         run_ttopt_structural_case(
@@ -5945,7 +6475,63 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             root,
         )
 
-    print("[reproduce] stage 18/18: deterministic micro-guided fixed-point convergence")
+    print("[reproduce] stage 18/20: bounded deterministic deepsyn structural resynthesis")
+    for pass_index in range(REPRODUCE_DEEPSYN_STRUCTURAL_PASSES):
+        pass_summaries: list[CaseSummary] = []
+        print(f"[deepsyn-structural] pass {pass_index + 1}/{REPRODUCE_DEEPSYN_STRUCTURAL_PASSES}")
+        for case in ALL_CASES:
+            table = read_truth(args.benchmarks / f"{case}.truth")
+            area, _delay, adp = measure_adp(args.abc, args.output / f"{case}.aig", 120, root)
+            if not should_run_deepsyn_structural(table, area, adp):
+                continue
+            print(f"[{case}] deepsyn structural")
+            _rows, summary = run_deepsyn_structural_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                REPRODUCE_DEEPSYN_STRUCTURAL_TIMEOUT,
+                root,
+                REPRODUCE_SEED,
+                1,
+                REPRODUCE_DEEPSYN_STRUCTURAL_SECONDS,
+            )
+            pass_summaries.append(summary)
+        baseline_total = sum(row.baseline_adp for row in pass_summaries)
+        best_total = sum(row.best_adp for row in pass_summaries)
+        print(f"[deepsyn-structural] pass {pass_index + 1} active total ADP {baseline_total} -> {best_total}")
+        if best_total >= baseline_total:
+            print("[deepsyn-structural] converged: no pass-level ADP improvement")
+            break
+
+    print("[reproduce] stage 19/20: safe Yosys/mockturtle hybrid structural remapping")
+    yosys_bin, yosys_error = resolve_yosys_binary(args.yosys_bin)
+    mockturtle_ok, mockturtle_error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
+    mockturtle_bin = args.mockturtle_structural_bin if mockturtle_ok else None
+    if yosys_bin is None:
+        print(f"[hybrid-structural] unavailable, skipping: {yosys_error}")
+    else:
+        if mockturtle_bin is None:
+            print(f"[hybrid-structural] mockturtle unavailable; using Yosys-only candidates: {mockturtle_error}")
+        for case in ALL_CASES:
+            print(f"[{case}] Yosys/mockturtle hybrid structural")
+            run_hybrid_structural_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                REPRODUCE_HYBRID_STRUCTURAL_TIMEOUT,
+                root,
+                yosys_bin,
+                mockturtle_bin,
+                REPRODUCE_HYBRID_WORKERS,
+                args.mockturtle_max_modes,
+                args.exact_max_inputs,
+            )
+
+    print("[reproduce] stage 20/20: deterministic micro-guided fixed-point convergence")
     for pass_index in range(REPRODUCE_MICRO_CONVERGENCE_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[micro-converge] pass {pass_index + 1}/{REPRODUCE_MICRO_CONVERGENCE_PASSES}")
@@ -6213,6 +6799,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mockturtle-case", help="run structural mockturtle resynthesis on one case")
     parser.add_argument("--mode", choices=STRUCTURAL_MOCKTURTLE_MODES, help="explicit structural mockturtle mode for --mockturtle-case")
     parser.add_argument("--mockturtle-max-modes", type=int, default=2, help="maximum fingerprint-selected mockturtle modes per case")
+    parser.add_argument("--mockturtle-workers", type=int, default=2, help="maximum parallel mockturtle structural candidates in hybrid mode")
     parser.add_argument(
         "--mockturtle-structural-bin",
         type=Path,
@@ -6250,6 +6837,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--specialized-generators", action="store_true", help="run exact-match structural generators and accept only ADP improvements")
     parser.add_argument("--specialized-generate", action="store_true", help="alias for --specialized-generators")
     parser.add_argument("--ttopt-structural", action="store_true", help="run truth-table BDD/MUX structural synthesis with ABC &ttopt")
+    parser.add_argument("--deepsyn-structural", action="store_true", help="run bounded deterministic LUT map/unmap structural resynthesis with ABC &deepsyn")
+    parser.add_argument("--deepsyn-iterations", type=int, default=1, help="number of bounded &deepsyn iterations per selected case")
+    parser.add_argument("--deepsyn-seconds", type=int, default=30, help="per-iteration search seconds for --deepsyn-structural")
+    parser.add_argument("--hybrid-structural", action="store_true", help="run safe Yosys AIG remapping followed by conditional mockturtle structural resynthesis")
+    parser.add_argument("--yosys-bin", type=Path, default=Path("yosys"), help="path or command name for Yosys used by --hybrid-structural")
     parser.add_argument("--exact-npn-rescue", action="store_true", help="run exact small-support/NPN-style rescue candidates")
     parser.add_argument("--npn-max-support", type=int, default=6, help="maximum per-output support for exact small-support rescue")
     parser.add_argument("--npn-max-flows", type=int, default=4, help="maximum ABC reductions for exact small-support rescue")
@@ -6628,7 +7220,7 @@ def main() -> int:
         fingerprint = fingerprint_case(truth)
         append_classification_csv(args.logs / "classification.csv", fingerprint)
         print(format_fingerprint(fingerprint))
-        exact_rows = exact_matches_for_truth(truth, max_expensive_inputs=12)
+        exact_rows = exact_matches_for_truth(truth, max_expensive_inputs=args.exact_max_inputs)
         write_exact_function_matches_csv(args.logs / "exact_function_matches.csv", exact_rows)
         print("")
         print(format_exact_matches(exact_rows))
@@ -6884,6 +7476,58 @@ def main() -> int:
             )
             summaries.append(summary)
         print_summary_totals("ttopt-structural", summaries)
+        return 0
+    if args.deepsyn_structural:
+        cases = selected_cases_from_args(args)
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] bounded deepsyn structural")
+            _rows, summary = run_deepsyn_structural_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                args.seed,
+                args.deepsyn_iterations,
+                args.deepsyn_seconds,
+            )
+            summaries.append(summary)
+        print_summary_totals("deepsyn-structural", summaries)
+        return 0
+    if args.hybrid_structural:
+        yosys_bin, error = resolve_yosys_binary(args.yosys_bin)
+        if yosys_bin is None:
+            print(f"[hybrid-structural] unavailable, skipping: {error}")
+            return 0
+        mockturtle_bin: Path | None = None
+        mockturtle_ok, mockturtle_error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
+        if mockturtle_ok:
+            mockturtle_bin = args.mockturtle_structural_bin
+        else:
+            print(f"[hybrid-structural] mockturtle unavailable; running Yosys-only candidates: {mockturtle_error}")
+        cases = selected_cases_from_args(args)
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] Yosys/mockturtle hybrid structural")
+            _rows, summary = run_hybrid_structural_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                yosys_bin,
+                mockturtle_bin,
+                args.mockturtle_workers,
+                args.mockturtle_max_modes,
+                args.exact_max_inputs,
+            )
+            summaries.append(summary)
+        print_summary_totals("hybrid-structural", summaries)
         return 0
     if args.mockturtle_structural or args.mockturtle_case:
         ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
