@@ -188,6 +188,11 @@ SPECIALIZED_GENERATOR_FLOWS = [
     PostFlow("specialized_delay", "strash; balance; rewrite; balance; refactor; balance"),
 ]
 
+TTOPT_STRUCTURAL_POLISH_FLOWS = [
+    PostFlow("ttopt_adp", "strash; balance; rewrite; refactor; dc2; balance"),
+    PostFlow("ttopt_area", "strash; dc2; balance"),
+]
+
 EXACT_NPN_RESCUE_FLOWS = [
     PostFlow("npn_identity", ""),
     PostFlow("npn_area", "strash; collapse; sop; fx; strash; rewrite -z; refactor -z; dc2; balance"),
@@ -330,6 +335,7 @@ REPRODUCE_SMALL_CASE_TIMEOUT = 35
 REPRODUCE_SMALL_CASE_MAX_FLOWS = 5
 REPRODUCE_SMALL_CASE_AREA_THRESHOLD = 2500
 REPRODUCE_SMALL_CASE_ADP_THRESHOLD = 50000
+REPRODUCE_TTOPT_STRUCTURAL_TIMEOUT = 150
 REPRODUCE_RECIPE = [
     (
         "1",
@@ -420,6 +426,12 @@ REPRODUCE_RECIPE = [
     ),
     (
         "17",
+        "truth_table_structural_resynthesis",
+        "Build shared BDD/MUX structures with ABC ttopt, then apply deterministic level-preserving transduction.",
+        f"all cases, timeout_per_case={REPRODUCE_TTOPT_STRUCTURAL_TIMEOUT}, fixed output groups only",
+    ),
+    (
+        "18",
         "micro_guided_fixed_point_convergence",
         "Repeat the deterministic low-cost resubstitution/remapping package after all structural generators have settled.",
         (
@@ -2563,6 +2575,33 @@ def append_specialized_generators_csv(path: Path, rows: list[dict[str, object]])
             writer.writerow({name: row.get(name, "") for name in fieldnames})
 
 
+def append_ttopt_structural_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "case",
+        "input_support",
+        "output_group",
+        "rounds",
+        "flow_name",
+        "flow_commands",
+        "generated",
+        "equivalent",
+        "area",
+        "delay",
+        "adp",
+        "improved",
+        "selected",
+        "error",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
 def append_exact_npn_rescue_csv(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     exists = path.is_file()
@@ -3254,6 +3293,210 @@ def run_specialized_generators_case(
             f"specialized/{selected_row.get('generator')}/{selected_row.get('flow_name')}"
             if selected_row is not None
             else "specialized/no_improvement"
+        ),
+    )
+    return rows, summary
+
+
+def ttopt_output_groups(num_outputs: int) -> list[int]:
+    groups = [num_outputs]
+    for group in (4, 2, 1):
+        if group < num_outputs and num_outputs % group == 0:
+            groups.append(group)
+    return groups
+
+
+def run_ttopt_structural_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+) -> tuple[list[dict[str, object]], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    table = read_truth(truth)
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        source.parent.mkdir(parents=True, exist_ok=True)
+        run_abc(abc, f"read_truth -xf {abc_path(truth, root)}; st; write_aiger -s {abc_path(source, root)}", 120, root)
+
+    tmp = logs / "tmp_ttopt_structural" / case
+    if tmp.exists():
+        shutil.rmtree(tmp)
+    tmp.mkdir(parents=True, exist_ok=True)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    best_area, best_delay, best_adp = base_area, base_delay, base_adp
+    best_aig: Path | None = None
+    best_group: int | None = None
+    best_rounds: int | None = None
+    rows: list[dict[str, object]] = []
+    deadline = time.monotonic() + timeout_per_case
+
+    for group in ttopt_output_groups(table.num_outputs):
+        rounds = 40 if group == table.num_outputs or group == 4 else 20
+        for flow in TTOPT_STRUCTURAL_POLISH_FLOWS:
+            remaining = max(1, int(deadline - time.monotonic()))
+            row: dict[str, object] = {
+                "case": case,
+                "input_support": table.num_inputs,
+                "output_group": group,
+                "rounds": rounds,
+                "flow_name": flow.name,
+                "flow_commands": flow.commands,
+                "generated": 0,
+                "equivalent": 0,
+                "improved": 0,
+                "selected": 0,
+            }
+            if remaining <= 1:
+                row["error"] = "case timeout before synthesis"
+                rows.append(row)
+                break
+            candidate_aig = tmp / f"{case}_i{table.num_inputs}_o{group}_x{rounds}_{flow.name}.aig"
+            command = (
+                f"read_truth -xf {abc_path(truth, root)}; st; &get; "
+                f"&ttopt -I {table.num_inputs} -O {group} -X {rounds}; &put; "
+                f"{flow.commands}; write_aiger -s {abc_path(candidate_aig, root)}"
+            )
+            try:
+                run_abc(abc, command, min(remaining, 240), root)
+                row["generated"] = 1
+                equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+                row["equivalent"] = int(equivalent)
+                if equivalent:
+                    area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                    improved = adp < best_adp
+                    row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "error": ""})
+                    if adp <= best_adp:
+                        if improved:
+                            best_area, best_delay, best_adp = area, delay, adp
+                        best_aig = candidate_aig
+                        best_group = group
+                        best_rounds = rounds
+                else:
+                    row["error"] = "not equivalent"
+            except subprocess.TimeoutExpired:
+                row["error"] = "timeout"
+            except Exception as exc:
+                row["error"] = str(exc)[:500]
+            rows.append(row)
+
+    remaining = max(1, int(deadline - time.monotonic()))
+    if best_aig is not None and remaining > 1:
+        candidate_aig = tmp / f"{case}_ttopt_best_transduction_level.aig"
+        row = {
+            "case": case,
+            "input_support": table.num_inputs,
+            "output_group": best_group if best_group is not None else "",
+            "rounds": best_rounds if best_rounds is not None else "",
+            "flow_name": "ttopt_level_preserving_transduction",
+            "flow_commands": "&transduction -T 1 -S 0 -I 0 -R 0 -V 0 -l; strash; dc2; balance",
+            "generated": 0,
+            "equivalent": 0,
+            "improved": 0,
+            "selected": 0,
+        }
+        command = (
+            f"read {abc_path(best_aig, root)}; &get; "
+            "&transduction -T 1 -S 0 -I 0 -R 0 -V 0 -l; &put; "
+            f"strash; dc2; balance; write_aiger -s {abc_path(candidate_aig, root)}"
+        )
+        try:
+            run_abc(abc, command, min(remaining, 240), root)
+            row["generated"] = 1
+            equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+            row["equivalent"] = int(equivalent)
+            if equivalent:
+                area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                improved = adp < best_adp
+                row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "error": ""})
+                if improved:
+                    best_area, best_delay, best_adp = area, delay, adp
+                    best_aig = candidate_aig
+            else:
+                row["error"] = "not equivalent"
+        except subprocess.TimeoutExpired:
+            row["error"] = "timeout"
+        except Exception as exc:
+            row["error"] = str(exc)[:500]
+        rows.append(row)
+
+    remaining = max(1, int(deadline - time.monotonic()))
+    repeat_source = best_aig if best_aig is not None else source
+    if (
+        table.num_inputs == table.num_outputs
+        and best_area <= 3000
+        and remaining > 1
+    ):
+        candidate_aig = tmp / f"{case}_ttopt_repeat_transduction_level.aig"
+        row = {
+            "case": case,
+            "input_support": table.num_inputs,
+            "output_group": best_group if best_group is not None else "",
+            "rounds": best_rounds if best_rounds is not None else "",
+            "flow_name": "ttopt_repeated_level_preserving_transduction",
+            "flow_commands": "&transduction -T 4 -S 0 -I 0 -R 0 -V 0 -l; strash; dc2; balance",
+            "generated": 0,
+            "equivalent": 0,
+            "improved": 0,
+            "selected": 0,
+        }
+        command = (
+            f"read {abc_path(repeat_source, root)}; &get; "
+            "&transduction -T 4 -S 0 -I 0 -R 0 -V 0 -l; &put; "
+            f"strash; dc2; balance; write_aiger -s {abc_path(candidate_aig, root)}"
+        )
+        try:
+            run_abc(abc, command, min(remaining, 240), root)
+            row["generated"] = 1
+            equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 90), root)
+            row["equivalent"] = int(equivalent)
+            if equivalent:
+                area, delay, adp = measure_adp(abc, candidate_aig, min(remaining, 90), root)
+                improved = adp < best_adp
+                row.update({"area": area, "delay": delay, "adp": adp, "improved": int(improved), "error": ""})
+                if improved:
+                    best_area, best_delay, best_adp = area, delay, adp
+                    best_aig = candidate_aig
+            else:
+                row["error"] = "not equivalent"
+        except subprocess.TimeoutExpired:
+            row["error"] = "timeout"
+        except Exception as exc:
+            row["error"] = str(exc)[:500]
+        rows.append(row)
+
+    selected_row: dict[str, object] | None = None
+    if best_aig is not None and best_adp < base_adp:
+        shutil.copyfile(best_aig, source)
+        for row in rows:
+            if row.get("adp") == best_adp:
+                row["selected"] = 1
+                selected_row = row
+                break
+
+    append_ttopt_structural_csv(logs / "ttopt_structural.csv", rows)
+    if best_adp < base_adp:
+        print(f"[{case}] ttopt structural improved ADP {base_adp} -> {best_adp}")
+    else:
+        print(f"[{case}] ttopt structural kept current ADP {base_adp}")
+
+    summary = CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best_area,
+        best_delay=best_delay,
+        best_adp=best_adp,
+        improvement_ratio=base_adp / best_adp if best_adp else 0.0,
+        selected_method=(
+            f"ttopt_structural/o{selected_row.get('output_group')}/{selected_row.get('flow_name')}"
+            if selected_row is not None
+            else "ttopt_structural/no_improvement"
         ),
     )
     return rows, summary
@@ -5369,7 +5612,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
     write_reproduce_recipe(args.logs)
     print(format_reproduce_recipe())
     print("")
-    print("[reproduce] stage 1/17: full hybrid synthesis search")
+    print("[reproduce] stage 1/18: full hybrid synthesis search")
     for case in ALL_CASES:
         print(f"[{case}] optimizing")
         rows, summary = optimize_case(
@@ -5391,7 +5634,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     for range_index, (start_case, end_case) in enumerate(REPRODUCE_ARITHMETIC_RANGES, start=2):
-        print(f"[reproduce] stage {range_index}/17: focused arithmetic range {start_case}-{end_case}")
+        print(f"[reproduce] stage {range_index}/18: focused arithmetic range {start_case}-{end_case}")
         for case in inclusive_cases(start_case, end_case):
             print(f"[{case}] optimizing focused range")
             rows, summary = optimize_case(
@@ -5413,7 +5656,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 5/17: focused divider quotient range "
+        f"[reproduce] stage 5/18: focused divider quotient range "
         f"{REPRODUCE_DIVIDER_RANGE[0]}-{REPRODUCE_DIVIDER_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_DIVIDER_RANGE):
@@ -5437,7 +5680,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
     print(
-        f"[reproduce] stage 6/17: focused square-root range "
+        f"[reproduce] stage 6/18: focused square-root range "
         f"{REPRODUCE_SQRT_RANGE[0]}-{REPRODUCE_SQRT_RANGE[1]}"
     )
     for case in inclusive_cases(*REPRODUCE_SQRT_RANGE):
@@ -5460,7 +5703,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 7/17: focused diagnosis-driven rescue cases")
+    print("[reproduce] stage 7/18: focused diagnosis-driven rescue cases")
     for case in REPRODUCE_RESCUE_CASES:
         print(f"[{case}] optimizing focused rescue case")
         rows, summary = optimize_case(
@@ -5483,7 +5726,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 8/17: equivalence-checked polish passes")
+    print("[reproduce] stage 8/18: equivalence-checked polish passes")
     for pass_index in range(REPRODUCE_POLISH_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[polish] pass {pass_index + 1}/{REPRODUCE_POLISH_PASSES}")
@@ -5511,7 +5754,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[polish] converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 9/17: deterministic all-case refinement package")
+    print("[reproduce] stage 9/18: deterministic all-case refinement package")
     for pass_index in range(REPRODUCE_SWEEP_PASSES):
         pass_summaries = []
         print(f"[refine] all cases pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
@@ -5565,7 +5808,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[refine] focused range converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 10/17: final all-case deterministic refinement package")
+    print("[reproduce] stage 10/18: final all-case deterministic refinement package")
     for pass_index in range(REPRODUCE_FINAL_SWEEP_PASSES):
         pass_summaries = []
         print(f"[refine] final all cases pass {pass_index + 1}/{REPRODUCE_FINAL_SWEEP_PASSES}")
@@ -5593,7 +5836,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[refine] final all-case package converged: no pass-level ADP improvement")
             break
 
-    print("[reproduce] stage 11/17: fingerprint-guided mockturtle structural resynthesis")
+    print("[reproduce] stage 11/18: fingerprint-guided mockturtle structural resynthesis")
     ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
     if not ok:
         print(f"[mockturtle-structural] unavailable, skipping: {error}")
@@ -5612,7 +5855,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 None,
             )
 
-    print("[reproduce] stage 12/17: final type-guided circuit-family refinement")
+    print("[reproduce] stage 12/18: final type-guided circuit-family refinement")
     for case in ALL_CASES:
         print(f"[{case}] type-guided refine")
         run_type_guided_refine_case(
@@ -5626,7 +5869,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_TYPE_GUIDED_MAX_FLOWS,
         )
 
-    print("[reproduce] stage 13/17: objective-guided area/delay/balanced refinement")
+    print("[reproduce] stage 13/18: objective-guided area/delay/balanced refinement")
     for case in ALL_CASES:
         print(f"[{case}] objective-guided refine")
         run_objective_guided_refine_case(
@@ -5640,7 +5883,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_OBJECTIVE_MAX_PER_FAMILY,
         )
 
-    print("[reproduce] stage 14/17: micro-guided per-case refinement")
+    print("[reproduce] stage 14/18: micro-guided per-case refinement")
     for case in ALL_CASES:
         print(f"[{case}] micro-guided refine")
         run_micro_guided_refine_case(
@@ -5654,7 +5897,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_MICRO_MAX_FLOWS,
         )
 
-    print("[reproduce] stage 15/17: small-case targeted refinement")
+    print("[reproduce] stage 15/18: small-case targeted refinement")
     for case in ALL_CASES:
         print(f"[{case}] small-case refine")
         run_small_case_refine_case(
@@ -5670,7 +5913,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_SMALL_CASE_ADP_THRESHOLD,
         )
 
-    print("[reproduce] stage 16/17: final advanced mockturtle structural refinement")
+    print("[reproduce] stage 16/18: final advanced mockturtle structural refinement")
     ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
     if not ok:
         print(f"[mockturtle-structural] unavailable, skipping: {error}")
@@ -5689,7 +5932,20 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 None,
             )
 
-    print("[reproduce] stage 17/17: deterministic micro-guided fixed-point convergence")
+    print("[reproduce] stage 17/18: truth-table structural resynthesis and level-preserving transduction")
+    for case in ALL_CASES:
+        print(f"[{case}] ttopt structural")
+        run_ttopt_structural_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_TTOPT_STRUCTURAL_TIMEOUT,
+            root,
+        )
+
+    print("[reproduce] stage 18/18: deterministic micro-guided fixed-point convergence")
     for pass_index in range(REPRODUCE_MICRO_CONVERGENCE_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[micro-converge] pass {pass_index + 1}/{REPRODUCE_MICRO_CONVERGENCE_PASSES}")
@@ -5993,6 +6249,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--small-case-refine", action="store_true", help="run a small-case-only refinement package selected by current area/ADP")
     parser.add_argument("--specialized-generators", action="store_true", help="run exact-match structural generators and accept only ADP improvements")
     parser.add_argument("--specialized-generate", action="store_true", help="alias for --specialized-generators")
+    parser.add_argument("--ttopt-structural", action="store_true", help="run truth-table BDD/MUX structural synthesis with ABC &ttopt")
     parser.add_argument("--exact-npn-rescue", action="store_true", help="run exact small-support/NPN-style rescue candidates")
     parser.add_argument("--npn-max-support", type=int, default=6, help="maximum per-output support for exact small-support rescue")
     parser.add_argument("--npn-max-flows", type=int, default=4, help="maximum ABC reductions for exact small-support rescue")
@@ -6610,6 +6867,23 @@ def main() -> int:
             )
             summaries.append(summary)
         print_summary_totals("specialized", summaries)
+        return 0
+    if args.ttopt_structural:
+        cases = selected_cases_from_args(args)
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] ttopt structural")
+            _rows, summary = run_ttopt_structural_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+            )
+            summaries.append(summary)
+        print_summary_totals("ttopt-structural", summaries)
         return 0
     if args.mockturtle_structural or args.mockturtle_case:
         ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)

@@ -34,6 +34,11 @@ optimization:
   are generated from arithmetic structures
   before ABC post-optimization, so the initial circuit is no longer the generic
   `read_truth -xf` result.
+- Truth-table structural resynthesis through ABC `&ttopt` for practical
+  multi-output functions.  This creates a new shared BDD/MUX-style structure
+  from the full truth table, then applies deterministic level-preserving
+  `&transduction`; compact equal-width networks may receive a repeated
+  transduction pass before ADP selection.
 - Selector-reduction BDD ordering for mux-like functions, based on Shannon
   cofactor support reduction.
 - Recursive factoring of SOP cubes when the cover is small enough.
@@ -102,6 +107,9 @@ The recipe is fixed, not a random command sweep:
 - micro-guided per-case refinement for small and stubborn cases
 - small-case targeted refinement for compact or low-ADP functions
 - final advanced mockturtle structural refinement on the fully refined outputs
+- truth-table structural resynthesis with `&ttopt` followed by deterministic
+  level-preserving transduction, with repeated rewiring for compact
+  equal-width networks
 - final deterministic micro-guided fixed-point convergence passes
 
 The old experimental subcommands are still available for research, but the
@@ -123,6 +131,24 @@ Run a smaller inclusive range for testing:
 
 ```bash
 python3 student/flow_optimizer.py --range ex200 ex209
+```
+
+Run the new truth-table structural synthesis stage alone:
+
+```bash
+python3 student/flow_optimizer.py --ttopt-structural --all --timeout-per-case 150
+python3 evaluate.py
+```
+
+The stage uses only legal output-group sizes for each truth table, verifies
+every generated AIG with ABC, and never replaces a current output unless ADP
+strictly decreases.
+
+Latest verified result after this structural stage and deterministic polish:
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 10771329
 ```
 
 Analyze a benchmark without generating an AIG:
