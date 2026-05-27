@@ -1665,3 +1665,160 @@ Current total ADP:   10667043
 Reference total ADP:  6696028
 Ratio:                  1.5930x
 ```
+
+### Code And Workspace Cleanup Without Flow Changes
+
+- Consolidated repeated stage-local temporary directory creation and cleanup
+  into `prepare_case_temp_dir(...)`.  Existing stage directory names and
+  candidate generation order are unchanged.
+- Strengthened `student/reproduce_best.sh` with explicit prerequisite checks
+  for `python3`, `yosys`, and `student/abc`, plus an automatic CMake rebuild
+  of `student/mockturtle_opt/mockturtle_opt` when the generated executable has
+  been cleaned.
+- Removed generated temporary candidate directories, old verification output
+  copies, build intermediates, and Python caches from the local ignored
+  workspace.  Formal output AIGs and report-oriented CSV summaries were
+  intentionally retained.
+- This update is organizational only: it does not add flows, change
+  classification, relax equivalence checking, or alter ADP replacement
+  criteria.
+
+### Area-Pareto Structural Resynthesis For Large Multi-Output Bottlenecks
+
+- Recomputed the remaining gap against `reference_result.csv`.  The dominant
+  unresolved cases remain large equal-width multi-output functions, especially
+  `ex297` and `ex299`, where the reference trades a higher level count for a
+  much smaller AIG area.
+- Investigated structure-generation routes rather than adding random command
+  sweeps:
+  - `&satfx` shared logic extraction produced an equivalent `ex297` candidate
+    but increased ADP (`647430 -> 708929`), so it was rejected.
+  - LogicNet `&lnetopt`/`&lnetmap` requires a separate simulation-data format;
+    candidates obtained from the current flattened AIG did not lower ADP.
+  - `&ttopt` followed by LUT-sharing `mfs2`/`&if` and standalone `lutmin`
+    produced equivalent candidates on the small LogicNet-style cases, but
+    their AIG ADP was worse than the existing output.
+  - Increasing fixed `&ttopt` depth from 40 to 500 rounds remained worse on
+    representative small LogicNet-style cases (`ex280` and `ex283`), so the
+    remaining gap is not addressed by simply spending more rounds on the
+    existing BDD structural route.
+- Found that this ABC binary also provides `&my_deepsyn`, which maintains
+  Pareto points with an explicit cost objective.  Added
+  `--pareto-area-structural` and `--pareto-area-seconds` to run fixed-seed
+  (`42`) area-first structural reconstruction:
+
+```text
+current equivalent AIG
+  -> &my_deepsyn -C area -t
+  -> optional fixed area cleanup
+  -> ABC full equivalence check
+  -> accept only lower ADP
+```
+
+- The automatic reproduction stage selects only large equal-width
+  multi-output networks (`area >= 25000`) instead of naming benchmark cases.
+  This targets area-bottleneck topology without spending the structural budget
+  on already compact outputs.
+- Added `student/logs/pareto_area_structural.csv` and inserted the new
+  deterministic area-Pareto pass as stage 19 of `--reproduce-best`.  The
+  Yosys/mockturtle and final micro-convergence stages are now stages 20 and 21.
+
+Accepted equivalent improvements from the new structural stage:
+
+```text
+ex206:  627902 ->  627242
+ex207:  736897 ->  736621
+ex227:  852334 ->  852012
+ex297:  647430 ->  646527
+ex298:  518640 ->  516160
+ex299: 2708256 -> 2704584
+```
+
+Verified result after area-Pareto structural resynthesis:
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 10658730
+```
+
+Compared with the preceding verified output checkpoint:
+
+```text
+10667043 -> 10658730
+ADP reduction: 8313
+```
+
+Compared with `reference_result.csv`, this new structural route is effective
+but does not yet close the LogicNet-style architecture gap:
+
+```text
+Current total ADP:   10658730
+Reference total ADP:  6696028
+Ratio:                  1.5918x
+```
+
+### Low-Degree Vector Pareto Fixed-Point And Adaptive Compact Probing
+
+- Investigated the compact equal-width multi-output gap without adding random
+  ABC flow sequences.  Exact tests rejected simple rectangular multiplier and
+  single-threshold interpretations for `ex280`-`ex284`.
+- Identified a reusable truth-table signature: equal-width vector functions
+  whose every output has ANF degree at most 4.  This feature rule selects the
+  compact five-function family that remained far above the reference result;
+  it does not name benchmark cases in the optimizer.
+- Extended area-Pareto structural resynthesis so it evaluates every AIG on
+  the generated Pareto frontier, applies fixed cleanup, performs ABC
+  equivalence checking, and chooses minimum ADP.  Previously the stage only
+  evaluated the search command's final area-oriented output and could miss a
+  better ADP frontier point.
+- Added `--compact-low-degree-pareto` and integrated a fixed-seed, bounded
+  fixed-point stage into `--reproduce-best`.  A case enters this stage only
+  from its Boolean signature; each pass retains only an equivalent strict ADP
+  decrease.
+- Added an adaptive compact-vector Pareto stage for wider coverage: a short
+  structural probe is given to compact equal-width functions with remaining
+  ADP cost, and full structural time is allocated only to cases whose probe
+  already produces an equivalent improvement.
+
+Verified low-degree vector-family reductions from the structural fixed-point
+run include:
+
+```text
+ex280: 15600 ->  2338
+ex281: 21965 ->  2688
+ex282: 30504 ->  4097
+ex283: 38718 ->  3757
+ex284: 40572 ->  4914
+family total: 147359 -> 17794
+```
+
+`ex280` now beats the supplied reference ADP (`2338 < 2415`).  Additional
+CEC-verified compact-vector improvements accepted during validation include:
+
+```text
+ex285:   9990 ->   7293
+ex286:  22410 ->  17460
+ex287:  23562 ->  14326
+ex288:  25821 ->  18918
+ex289:  25783 ->  22040
+ex291:  80432 ->  80320
+ex293: 148518 -> 133888
+ex294: 200500 -> 168164
+ex295: 128832 -> 127056
+ex296: 137466 -> 136206
+```
+
+Final verification after this update:
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 10449199
+Previous verified ADP:          10656924
+ADP reduction in this update:     207725
+Reference total ADP:              6696028
+```
+
+The new structural direction makes a substantial improvement in the compact
+LogicNets-style family, but the submission still does not reach the supplied
+reference total; the dominant remaining area gap is concentrated in the large
+vector functions such as `ex297` and `ex299`.

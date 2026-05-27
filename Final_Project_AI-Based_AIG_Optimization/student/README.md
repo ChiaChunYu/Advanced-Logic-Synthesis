@@ -3,310 +3,214 @@
 This directory contains the submitted optimizer for the AI-Based AIG
 Optimization final project.
 
-## Files
+## What To Run
 
-- `optimizer.py`: original baseline optimizer, kept unchanged.
-- `flow_optimizer.py`: current hybrid structural optimizer.
-- `boolean_fingerprint.py`: truth-table feature extraction and classification.
-- `exact_function_recognition.py`: exact function/template recognition.
-- `reproduce_best.sh`: deterministic full regeneration command.
-- `OPTIMIZATION_LOG.md`: development history and per-update experiment record.
-
-## Objective And Safety
-
-For every benchmark `benchmarks/ex200.truth` through `benchmarks/ex299.truth`,
-the optimizer produces `output/exNNN.aig` and minimizes:
-
-```text
-ADP = area * delay
-```
-
-Correctness is mandatory. Every replacement candidate is checked against the
-original truth table using ABC equivalence checking. A candidate replaces the
-current output only when:
-
-```text
-equivalent == true and candidate_ADP < current_ADP
-```
-
-No benchmark-specific final AIG is hardcoded, and `student/optimizer.py` is not
-modified.
-
-## Current Optimization Framework
-
-The current optimizer is a hybrid synthesis pipeline. It does not depend on
-one ABC flow or random command sweeping.
-
-### 1. Function Analysis
-
-`boolean_fingerprint.py` analyzes each truth table before selecting candidate
-structures:
-
-- effective support and input influence
-- density, monotonicity, symmetry, and Shannon split behavior
-- ANF degree and small-function templates
-- circuit-type hints such as affine/parity, threshold, mux-like, comparator,
-  arithmetic-like, and general multi-output logic
-
-### 2. Multiple Initial Structures
-
-`flow_optimizer.py` constructs several structurally different initial
-candidates:
-
-- ABC truth-table baseline synthesis
-- SOP/POS and factored SOP construction
-- Shannon/BDD construction with several deterministic variable orderings
-- complement-first synthesis
-- exact recognized templates for affine, popcount/threshold, comparator,
-  adder, multiplier, square, divider quotient, and integer square-root
-  functions
-- optional mockturtle structural candidates for AIG/XAG/MIG/XMG-oriented
-  rewriting
-
-### 3. Truth-Table Structural Resynthesis
-
-The main architecture-level addition is ABC `&ttopt` structural synthesis:
-
-```text
-truth table -> shared BDD/MUX-style AIG -> ABC polish -> equivalence/ADP selection
-```
-
-For practical multi-output functions, `&ttopt` generates a new network from
-the full truth table instead of only rewriting an existing AIG. The optimizer:
-
-- derives legal output-group sizes from each function's output count
-- tries fixed, deterministic `&ttopt` configurations
-- applies a small ADP-oriented polish set
-- applies level-preserving `&transduction -T 1 -l` to improved structures
-- for compact equal-width networks, also tries repeated level-preserving
-  `&transduction -T 4 -l`
-
-This structural route produced the largest improvements in the current result,
-including practical-function and LogicNets-style cases.
-
-### 4. Bounded Deep Structural Resynthesis
-
-For high-cost multi-output functions and 16-input/8-output dropped-output
-practical-function shapes, the optimizer also uses ABC `&deepsyn`:
-
-```text
-current equivalent AIG -> fixed-seed LUT map/unmap resynthesis -> ABC polish
-                         -> equivalence/ADP selection
-```
-
-This stage is deterministic (`seed=42`) and bounded to up to two passes of one
-30-second structural iteration per selected case, stopping when a pass makes
-no improvement.  For the dropped-output practical
-shape it additionally tries the two-input LUT structural mode.  It is not a
-random command sweep: candidates are new structures produced by LUT
-decomposition and re-synthesis, and each is independently checked for
-equivalence before replacement.
-
-### 5. Yosys And mockturtle Hybrid Resynthesis
-
-The latest structural stage mixes the installed Yosys and mockturtle engines
-without accepting unverified rewrites:
-
-```text
-current AIG -> ABC symbol-free AIGER bridge -> Yosys AIG remap
-            -> fixed ABC polish -> optional fingerprint-selected mockturtle
-            -> fixed ABC polish -> equivalence/ADP selection
-```
-
-The symbol-free bridge is required because a direct Yosys AIGER round trip
-reorders the named primary inputs in these benchmark files.  Removing symbols
-before Yosys preserves the positional interface checked against the truth
-table.
-
-Yosys uses one fixed `abc -g aig` structural remap.  mockturtle is only
-invoked from an improved Yosys seed and only in modes selected by the
-fingerprint classifier.  Independent mockturtle candidates can be generated
-in parallel with `--mockturtle-workers N`; the candidate order and final
-selection remain deterministic.
-
-### 6. Final ADP Refinement
-
-Equivalent candidates are compared by ADP. Selected outputs may then receive
-fixed deterministic refinement packages:
-
-- area-oriented, delay-oriented, and balanced ABC polishing
-- micro-guided refinement for compact or nearly converged circuits
-- final fixed-point convergence passes
-
-The optimizer always retains the lower-ADP equivalent output.
-
-## Current Verified Result
-
-The current `output/` directory was verified with:
-
-```bash
-python3 student/flow_optimizer.py --write-final-summary \
-  --abc student/abc --benchmarks benchmarks --output output --logs student/logs
-```
-
-Verified result:
-
-```text
-Equivalent cases: 100/100
-Total ADP over equivalent cases: 10667043
-```
-
-Representative improvements from the structural synthesis paths:
-
-```text
-ex242: 50578  -> 30096
-ex243: 99940  -> 82016
-ex250: 73524  -> 63525
-ex251: 117306 -> 85316
-ex252: 234186 -> 51714
-ex280: 25056  -> 15680
-ex281: 31980  -> 22057
-ex282: 38283  -> 30696
-ex284: 57122  -> 41300
-ex287: 33462  -> 25023
-ex243: 82016  -> 71106
-ex250: 63525  -> 51568
-ex251: 85316  -> 64932
-ex252: 51714  -> 43550
-ex253: 7707   -> 3634
-ex243: 71106  -> 63000
-ex250: 51568  -> 51436
-ex251: 64932  -> 64722
-ex298: 540708 -> 518640
-ex299: 2711688 -> 2708256
-```
-
-The later `ex243` and `ex250`-`ex253` improvements above came from bounded
-`&deepsyn` plus final micro refinement.  The final `ex243`, `ex250`, `ex251`,
-`ex298`, and `ex299` reductions include the Yosys/mockturtle hybrid seed and
-its deterministic final cleanup.  The detailed history is recorded in
-`OPTIMIZATION_LOG.md`,
-not in this README.
-
-## Reproduce The Result
-
-Run commands from the project root in Linux or WSL because `student/abc` is a
-Linux executable.
-
-### Full Deterministic Regeneration
-
-The full pipeline entry point is:
+Use this command to regenerate all submitted AIGs and verify them:
 
 ```bash
 bash student/reproduce_best.sh
 ```
 
-It runs the deterministic synthesis recipe, writes AIG files to `output/`, and
-then runs the evaluator. The complete flow is intentionally long because it
-includes all-case synthesis, structural resynthesis, equivalence checks, and
-final convergence passes.  The recipe includes the adaptive bounded
-`&deepsyn` stage for remaining expensive multi-output structures and the safe
-Yosys/mockturtle hybrid structural stage.
-
-To inspect the fixed recipe:
+`reproduce_best.sh` is the single reproduction entry point.  It checks the
+required tools, builds the mockturtle helper if needed, invokes:
 
 ```bash
-python3 student/flow_optimizer.py --show-reproduce-recipe
+python3 student/flow_optimizer.py --reproduce-best \
+  --abc student/abc \
+  --benchmarks benchmarks \
+  --output output \
+  --logs student/logs
 ```
 
-### Verify Existing Generated Outputs
-
-To verify already generated `output/exNNN.aig` files:
+and then runs:
 
 ```bash
-python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+python3 evaluate.py \
+  --abc student/abc \
+  --benchmarks benchmarks \
+  --output output
 ```
 
-To refresh the report-oriented summary:
+`flow_optimizer.py` contains the actual optimization implementation.
+Individual `flow_optimizer.py` options are useful for analysis and testing a
+single stage, but `reproduce_best.sh` is the command to use for complete
+result reproduction.
 
-```bash
-python3 student/flow_optimizer.py --write-final-summary \
-  --abc student/abc --benchmarks benchmarks --output output --logs student/logs
+Complete regeneration is intentionally long-running: the final method
+includes bounded fixed-point Pareto structural passes for compact vector
+functions and adaptive follow-up only for probe cases that first improve.
+
+## Required Environment
+
+Run the project in Linux or WSL because `student/abc` is a Linux executable.
+
+Required tools:
+
+```text
+python3
+yosys
+student/abc
 ```
 
-### Run The New Structural Stage Alone
+When `student/mockturtle_opt/mockturtle_opt` is not already built, complete
+regeneration also requires:
 
-To apply only the current truth-table structural resynthesis method on existing
-outputs:
-
-```bash
-python3 student/flow_optimizer.py --ttopt-structural --all \
-  --timeout-per-case 150 \
-  --abc student/abc --benchmarks benchmarks --output output --logs student/logs
-
-python3 student/flow_optimizer.py --micro-guided-refine --all \
-  --micro-max-flows 4 --timeout-per-case 30 \
-  --abc student/abc --benchmarks benchmarks --output output --logs student/logs
-
-python3 student/flow_optimizer.py --deepsyn-structural --range ex250 ex254 \
-  --seed 42 --deepsyn-iterations 1 --deepsyn-seconds 30 \
-  --timeout-per-case 100 \
-  --abc student/abc --benchmarks benchmarks --output output --logs student/logs
-
-python3 student/flow_optimizer.py --hybrid-structural --all \
-  --yosys-bin yosys --mockturtle-workers 2 --mockturtle-max-modes 2 \
-  --timeout-per-case 90 \
-  --abc student/abc --benchmarks benchmarks --output output --logs student/logs
-
-python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+```text
+cmake
+a C++ compiler
+student/mockturtle_src/
 ```
 
-This incremental command sequence is useful when `output/` already contains
-the previous best equivalent AIGs. It is not a from-scratch replacement for
-`reproduce_best.sh`.
+## Objective And Safety
 
-## Output And Logs
-
-Required submission outputs:
+For each truth table from `benchmarks/ex200.truth` through
+`benchmarks/ex299.truth`, the optimizer generates:
 
 ```text
 output/ex200.aig ... output/ex299.aig
 ```
 
-Main report files:
+The objective is:
 
 ```text
-student/logs/results.csv
-student/logs/summary.csv
-student/logs/final_summary.csv
-student/logs/ttopt_structural.csv
-student/logs/deepsyn_structural.csv
-student/logs/hybrid_structural.csv
-student/logs/classification.csv
-student/logs/exact_function_matches.csv
+ADP = area * delay
 ```
 
-`ttopt_structural.csv` records the new architecture-level candidate search:
+Every candidate must pass ABC equivalence checking against its original truth
+table.  A generated AIG replaces the current output only when it is:
 
 ```text
-case,input_support,output_group,rounds,flow_name,flow_commands,
-generated,equivalent,area,delay,adp,improved,selected,error
+equivalent and lower in ADP
 ```
 
-`deepsyn_structural.csv` records the fixed-seed LUT map/unmap candidates:
+`student/optimizer.py` is the original baseline and remains unchanged.  The
+submission does not hardcode final benchmark AIG answers.
+
+## Current Optimization Method
+
+The submitted method is a deterministic hybrid structural synthesis pipeline.
+It constructs and tests several equivalent network representations, then
+keeps the lowest-ADP verified result.
+
+### 1. Boolean Function Analysis
+
+`boolean_fingerprint.py` and `exact_function_recognition.py` analyze truth
+tables to identify useful structure:
+
+- effective support, input influence, density, monotonicity, and symmetry
+- Shannon decomposition behavior and ANF properties
+- exact recognized templates such as affine/parity, threshold/popcount,
+  comparator, adder, multiplier, square, divider quotient, and integer square
+  root when proven by the truth table
+
+### 2. Initial Structural Candidates
+
+`flow_optimizer.py` generates structurally different candidates from:
+
+- ABC truth-table synthesis
+- SOP/POS and factored SOP forms
+- Shannon/BDD structures with deterministic variable orders
+- complement-first synthesis
+- exact specialized templates when an exact function match is available
+
+### 3. Structural Resynthesis Engines
+
+The pipeline then attempts deterministic architecture-level transformations:
+
+- fingerprint-selected mockturtle AIG/XAG/MIG/XMG resynthesis
+- ABC `&ttopt` truth-table structural synthesis with level-preserving
+  transduction
+- bounded fixed-seed ABC `&deepsyn` LUT map/unmap resynthesis
+- fixed-seed ABC `&my_deepsyn -C area` Pareto resynthesis for large
+  equal-width multi-output area bottlenecks
+- low-ANF-degree vector-function detection followed by iterative Pareto
+  structural resynthesis for compact LogicNets-style functions
+- an adaptive compact-vector probe that expands structural budget only after
+  an equivalent lower-ADP probe candidate is found
+- safe Yosys-to-mockturtle hybrid resynthesis
+
+For the Pareto structural stages, the optimizer measures every generated
+frontier AIG after fixed cleanup and selects by ADP.  It does not assume that
+the smallest-area frontier point is the best submitted point.
+
+The Yosys hybrid route uses:
 
 ```text
-case,variant,seed,iterations,search_seconds,flow_name,flow_commands,
-generated,equivalent,area,delay,adp,improved,selected,error
+current AIG
+  -> ABC symbol-free AIGER bridge
+  -> Yosys AIG remap
+  -> fixed ABC polish
+  -> fingerprint-selected mockturtle resynthesis, when useful
+  -> fixed ABC polish
+  -> equivalence and ADP selection
 ```
 
-`hybrid_structural.csv` records safe Yosys remaps and conditional
-Yosys-then-mockturtle candidates:
+The symbol-free bridge preserves primary-input ordering when AIGER files pass
+through Yosys.  Independent mockturtle candidate generations may run in
+parallel, but selection remains deterministic and equivalence gated.
+
+### 4. Final Deterministic Refinement
+
+After structural candidates settle, fixed area-oriented, delay-oriented, and
+balanced ABC refinement packages are tried.  A final micro-guided fixed-point
+pass retains only verified ADP decreases.
+
+## Final Verified Result
+
+The current submitted outputs have been checked with `evaluate.py`:
 
 ```text
-case,chain,mode,flow_name,flow_commands,generated,equivalent,
-area,delay,adp,improved,selected,error
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 10449199
 ```
 
-## Useful Diagnostic Commands
+Development history, per-stage experiments, and prior result comparisons are
+recorded separately in `student/OPTIMIZATION_LOG.md`.
+
+## Implementation Files
+
+The complete result is generated by these submitted source files:
+
+```text
+student/reproduce_best.sh               single reproduction command
+student/flow_optimizer.py               deterministic optimization pipeline
+student/boolean_fingerprint.py          truth-table structure analysis
+student/exact_function_recognition.py   exact template detection
+student/mockturtle_opt/                 mockturtle structural resynthesis tool
+```
+
+`student/optimizer.py` is retained only as the provided baseline; it is not
+called by the final reproduction command.  Development history is documented
+separately in `student/OPTIMIZATION_LOG.md`.
+
+Report-ready logs are written under `student/logs/`, including:
+
+```text
+results.csv
+summary.csv
+final_summary.csv
+classification.csv
+exact_function_matches.csv
+ttopt_structural.csv
+deepsyn_structural.csv
+pareto_area_structural.csv
+gia_canonical_convergence.csv
+hybrid_structural.csv
+```
+
+## Verification Only
+
+To verify existing generated outputs without rerunning optimization:
 
 ```bash
-python3 student/flow_optimizer.py --classify-case ex200
-python3 student/flow_optimizer.py --exact-function-report --all
-python3 student/flow_optimizer.py --diagnose-results
-python3 student/flow_optimizer.py --ablation-report
-python3 student/flow_optimizer.py --case-coverage-report
+python3 evaluate.py \
+  --abc student/abc \
+  --benchmarks benchmarks \
+  --output output
 ```
 
-These commands produce analysis logs; they are not required to generate final
-AIG outputs.
+To inspect the deterministic stages executed by the reproduction command:
+
+```bash
+python3 student/flow_optimizer.py --show-reproduce-recipe
+```
