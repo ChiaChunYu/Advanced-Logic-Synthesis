@@ -2403,32 +2403,84 @@ ADP reduction: 4,038
 - Added stage 14/15 (`my_deepsyn_all_case_sweep`) to `run_reproduce_best`: runs `&my_deepsyn -C area -T 60` on every case with area ≥ 500. This covers the LogicNets-style cases that the earlier large-case Pareto stage (area ≥ 25000) missed.
 - Stage count increased from 14 to 15.
 
-### Remaining High-Gap Cases
-
-After this pass, the largest remaining gaps are:
-
-```text
-ex299: 2.57x (ADP 2,604,405 vs ref 1,013,807) — large vector function, area-dominated
-ex297: 2.54x (ADP   574,398 vs ref   225,900) — large vector function
-ex286: 6.97x (ADP    16,558 vs ref     2,376) — 13->13 compact function, hard to compress further
-ex252: 6.04x (ADP    15,708 vs ref     2,603) — 16->8 sparse function, 60s gives 714 area vs ref 137
-```
-
-The reference results for ex252 and ex286 (area 137 and 198 respectively)
-suggest a synthesis method that exploits structure not visible to the current
-ABC+mockturtle pipeline.  Extended `&my_deepsyn` runs (300 seconds) continued
-to push area down but at the cost of higher delay, so the ADP minimum at 60s
-was better than at 300s for these cases.
-
 ### Reproduction
 
-The full `&my_deepsyn` sweep is integrated as a new analysis script:
+Stage 14 of `--reproduce-best` runs the `&my_deepsyn -C area` all-case sweep
+automatically.  The standalone command for targeted cases is:
 
 ```bash
-python3 student/run_mydeepsyn_all.py
+python3 student/push_to_15x.py [case ...]
 ```
 
-This runs a 60-second `&my_deepsyn -C area` pass on every case, checks all
-Pareto AIGs for equivalence, and replaces `output/exNNN.aig` only on strict
-ADP improvement.  Results are logged to `student/logs/mydeepsyn_sweep.csv`.
+## 2026-05-31
+
+### Targeted Push Toward 1.5x On All Cases
+
+Gap analysis classified all 33 remaining >1.5x cases into three types:
+
+```text
+area_only(d>ref): our delay < ref delay, but area 3–5x too large (ex299, ex297, ex225, ex223, ex295, ex240, ex241)
+delay_high:       our delay 1.7–2.3x ref delay (ex264, ex263, ex262, ex219, ex217, ex261)
+area_high:        both area and delay somewhat high (ex248, ex250, ex286, ex252, ex287, ...)
+```
+
+**Improvements applied:**
+
+| Case | Before | After | Method |
+|------|--------|-------|--------|
+| ex251 | 60,211 | 54,502 | `&sopb -C 8 -R 1` + balance (delay 19→17) |
+| ex219 | 15,596 | 14,743 | `&sopb -C 16 -R 1` |
+| ex217 | 14,742 | 13,420 | `roundtrip_xag` (mockturtle) |
+| ex261 | 5,068  | 5,044  | `roundtrip_xag` |
+| ex249 | 3,636  | 2,772  | `&my_deepsyn` 2-pass |
+| ex246 | 5,445  | 5,344  | `&my_deepsyn` 2-pass |
+| ex244 | 8,295  | 6,560  | `&my_deepsyn` 2-pass |
+| ex241 | 11,396 | 11,228 | `&my_deepsyn` 2-pass |
+| ex287 | 14,174 | 13,260 | `&my_deepsyn` 120s |
+| ex248 | 13,482 | 8,717  | `&my_deepsyn` 300s |
+| ex253 | 2,964  | 2,907  | `resub -K 12 -N 3` |
+| ex270 | 3,348  | 3,312  | `resub -K 10 -N 2` |
+
+**Cases that resisted all attempts:**
+
+- `ex262/ex263/ex264`: all ABC/mockturtle delay-reduction flows produce no ADP improvement — the circuit depth is structurally determined by the truth table.
+- `ex270/ex253/ex260`: area is at local minimum for ABC rewriting; `&my_deepsyn` with up to 300s and fresh truth-table synthesis both find no lower ADP.
+- `ex299/ex297/ex225/ex223`: large area-only cases where reference trades much higher delay for smaller area — require synthesis approaches outside the current ABC+mockturtle tool set.
+
+### Current Verified Result
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 9,938,929
+```
+
+Compared with previous verified result:
+
+```text
+9,963,184 -> 9,938,929
+ADP reduction: 24,255
+```
+
+Compared with `reference_result.csv`:
+
+```text
+Current total ADP:   9,938,929
+Reference total ADP:  6,696,028
+Ratio:                  1.4843x
+Cases beating reference: 3/100 (ex276, ex280, ex272)
+Cases within 1.5x:      69/100
+Cases above 1.5x:       31/100
+```
+
+### Remaining High-Gap Cases
+
+```text
+ex299: 2.57x  — large area-only, ref uses much higher delay
+ex297: 2.54x  — same pattern
+ex286: 6.97x  — compact, ABC at local minimum
+ex252: 6.04x  — sparse 16->8 function, ABC at local minimum
+ex264: 2.18x  — delay-bound: our delay 38 vs ref 22, no flow reduces it
+ex263: 2.13x  — delay-bound: our delay 35 vs ref 18
+ex262: 1.93x  — delay-bound: our delay 31 vs ref 20
+```
 

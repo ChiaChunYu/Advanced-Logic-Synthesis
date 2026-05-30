@@ -196,7 +196,7 @@ The current submitted outputs have been checked with `evaluate.py`:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 9963184
+Total ADP over equivalent cases: 9938929
 ```
 
 3 cases beat the reference result (ex276, ex280, ex272).
