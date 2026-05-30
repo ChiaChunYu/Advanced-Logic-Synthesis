@@ -394,12 +394,12 @@ REPRODUCE_DEEPSYN_MIN_AREA = 2500
 REPRODUCE_PARETO_AREA_STRUCTURAL_TIMEOUT = 140
 REPRODUCE_PARETO_AREA_SECONDS = 80
 REPRODUCE_PARETO_AREA_MIN_AREA = 25000
-REPRODUCE_MY_DEEPSYN_ALL_SECONDS = 60
-REPRODUCE_MY_DEEPSYN_ALL_TIMEOUT = 90
-REPRODUCE_MY_DEEPSYN_ALL_MIN_AREA = 500
-REPRODUCE_MY_DEEPSYN_LONG_SECONDS = 180
-REPRODUCE_MY_DEEPSYN_LONG_TIMEOUT = 210
-REPRODUCE_MY_DEEPSYN_LONG_MIN_AREA = 2000
+REPRODUCE_MY_DEEPSYN_PASS1_SECONDS = 60
+REPRODUCE_MY_DEEPSYN_PASS1_TIMEOUT = 90
+REPRODUCE_MY_DEEPSYN_PASS1_MIN_AREA = 500
+REPRODUCE_MY_DEEPSYN_PASS2_SECONDS = 180
+REPRODUCE_MY_DEEPSYN_PASS2_TIMEOUT = 210
+REPRODUCE_MY_DEEPSYN_PASS2_MIN_AREA = 2000
 REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS = 120
 REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS = 360
 REPRODUCE_LONG_LARGE_STRUCTURAL_TIMEOUT_MARGIN = 120
@@ -540,10 +540,10 @@ REPRODUCE_RECIPE = [
         "Pass 1 (60s, up to 3 convergence rounds) covers all cases >= 500 area; "
         "Pass 2 (180s, 1 round) gives a longer budget to cases >= 2000 area.",
         (
-            f"pass1: area>={REPRODUCE_MY_DEEPSYN_ALL_MIN_AREA}, "
-            f"seconds={REPRODUCE_MY_DEEPSYN_ALL_SECONDS}, max_rounds=3; "
-            f"pass2: area>={REPRODUCE_MY_DEEPSYN_LONG_MIN_AREA}, "
-            f"seconds={REPRODUCE_MY_DEEPSYN_LONG_SECONDS}"
+            f"pass1: area>={REPRODUCE_MY_DEEPSYN_PASS1_MIN_AREA}, "
+            f"seconds={REPRODUCE_MY_DEEPSYN_PASS1_SECONDS}, max_rounds=3; "
+            f"pass2: area>={REPRODUCE_MY_DEEPSYN_PASS2_MIN_AREA}, "
+            f"seconds={REPRODUCE_MY_DEEPSYN_PASS2_SECONDS}"
         ),
     ),
     (
@@ -7260,15 +7260,21 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             break
 
     # --- stage 14/15: &my_deepsyn area-Pareto all-case sweep ---
-    # Pass 1 (60s, up to 3 rounds): every case with area >= 500.
-    #   Repeats until no case improves (converge), so multi-pass gains are captured.
-    # Pass 2 (180s, 1 round): medium/large cases with area >= 2000.
+    # Pass 1 (60s, up to 3 convergence rounds): every case with area >= PASS1 threshold.
+    # Pass 2 (180s, 1 round): cases with area >= PASS2 threshold.
     print("[reproduce] stage 14/15: &my_deepsyn area-Pareto all-case sweep")
+    # Measure once; update from summary after each run to avoid redundant ABC calls.
+    case_area: dict[str, int] = {}
+    for case in ALL_CASES:
+        a, _d, _adp = measure_adp(args.abc, args.output / f"{case}.aig", 60, root)
+        if a is not None:
+            case_area[case] = a
+
     for _pass_idx in range(3):
         any_improved = False
         for case in ALL_CASES:
-            area, _delay, _adp = measure_adp(args.abc, args.output / f"{case}.aig", 60, root)
-            if area is None or area < REPRODUCE_MY_DEEPSYN_ALL_MIN_AREA:
+            area = case_area.get(case)
+            if area is None or area < REPRODUCE_MY_DEEPSYN_PASS1_MIN_AREA:
                 continue
             print(f"[{case}] my_deepsyn pass-1 sweep (area={area})")
             _rows, summary = run_pareto_area_structural_case(
@@ -7277,20 +7283,21 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 args.benchmarks,
                 args.output,
                 args.logs,
-                REPRODUCE_MY_DEEPSYN_ALL_TIMEOUT,
+                REPRODUCE_MY_DEEPSYN_PASS1_TIMEOUT,
                 root,
                 REPRODUCE_SEED,
-                REPRODUCE_MY_DEEPSYN_ALL_SECONDS,
+                REPRODUCE_MY_DEEPSYN_PASS1_SECONDS,
             )
             if summary.best_adp < summary.baseline_adp:
                 any_improved = True
+                case_area[case] = summary.best_area or area
         if not any_improved:
             break
 
-    # Pass 2: longer budget for medium/large cases
+    # Pass 2: longer budget for medium/large cases; reuse area cache from pass 1.
     for case in ALL_CASES:
-        area, _delay, _adp = measure_adp(args.abc, args.output / f"{case}.aig", 60, root)
-        if area is None or area < REPRODUCE_MY_DEEPSYN_LONG_MIN_AREA:
+        area = case_area.get(case)
+        if area is None or area < REPRODUCE_MY_DEEPSYN_PASS2_MIN_AREA:
             continue
         print(f"[{case}] my_deepsyn pass-2 long sweep (area={area})")
         run_pareto_area_structural_case(
@@ -7299,10 +7306,10 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             args.benchmarks,
             args.output,
             args.logs,
-            REPRODUCE_MY_DEEPSYN_LONG_TIMEOUT,
+            REPRODUCE_MY_DEEPSYN_PASS2_TIMEOUT,
             root,
             REPRODUCE_SEED,
-            REPRODUCE_MY_DEEPSYN_LONG_SECONDS,
+            REPRODUCE_MY_DEEPSYN_PASS2_SECONDS,
         )
 
     # --- stage 15/15: final convergence — micro + GIA canonical (merged 24 + 25) ---
