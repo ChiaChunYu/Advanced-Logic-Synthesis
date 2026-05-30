@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Hybrid AIG optimizer for the ALS 2026 final project.
 
 This optimizer tries multiple initial synthesis strategies before ABC
@@ -158,6 +158,32 @@ SWEEP_FLOWS = [
     PostFlow("sweep_gia_dc2", "&get; &dc2; &put; balance; rewrite -z; refactor -z; dc2; balance"),
 ]
 
+AREA_FIRST_FLOWS = [
+    PostFlow("af_rw_rf_loop", "rewrite -z; refactor -z; rewrite -z; refactor -z; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("af_dc2_x5", "dc2; rewrite -z; dc2; refactor -z; dc2; rewrite -z; dc2; balance"),
+    PostFlow("af_fraig_rw_rf_x2", "fraig; rewrite -z; refactor -z; dc2; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("af_dch_if3", "dch; if -K 3; strash; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("af_dch_if4", "dch; if -K 4; strash; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("af_resub8_n2_x2", "resub -K 8 -N 2; rewrite -z; refactor -z; dc2; resub -K 8 -N 2; rewrite -z; dc2; balance"),
+    PostFlow("af_resub10_n2", "resub -K 10 -N 2; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("af_collapse_sop_fx", "collapse; sop; fx; strash; rewrite -z; refactor -z; dc2; rewrite -z; balance"),
+    PostFlow("af_gia_compress2rs_x3", "&get; &compress2rs; &compress2rs; &compress2rs; &put; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("af_gia_dc2_compress", "&get; &dc2; &compress2rs; &dc2; &compress2rs; &put; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("af_gia_mfs_compress", "&get; &mfs; &compress2rs; &mfs; &compress2rs; &put; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("af_gia_compress3rs_x5", "&get; &compress3rs; &compress3rs; &compress3rs; &compress3rs; &compress3rs; &put; dc2; balance"),
+    PostFlow("af_resub12_n3", "resub -K 12 -N 3; balance; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("af_gia_dsdb_compress3rs", "&get; &dsdb -K 6 -C 64; &compress3rs; &compress3rs; &compress3rs; &put; dc2; balance"),
+    PostFlow("af_gia_dsd_compress3rs", "&get; &dsd; &compress3rs; &compress3rs; &compress3rs; &put; dc2; balance"),
+    PostFlow("af_gia_resyn3_compress3", "&get; &resyn3; &compress3rs; &resyn3; &compress3rs; &put; dc2; balance"),
+    PostFlow("af_sopb_balance", "&get; &sopb -C 16 -R 1; &put; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("af_b_d_s_compress", "&get; &b -d -s; &compress3rs; &compress3rs; &put; balance; rewrite -z; balance"),
+]
+
+AREA_FIRST_RESYNTH_FLOWS = [
+    PostFlow("af_resynth_collapse_fx", "collapse; sop; fx; strash; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("af_resynth_dch_if4_area", "dch; if -K 4; strash; rewrite -z; refactor -z; dc2; rewrite -z; balance"),
+]
+
 MOCKTURTLE_MODES = ["light", "refactor", "balance"]
 MOCKTURTLE_POST_FLOW = PostFlow("mockturtle_abc_cleanup", "dc2; rewrite -z; refactor -z; balance")
 STRUCTURAL_MOCKTURTLE_MODES = [
@@ -203,6 +229,7 @@ DEEPSYN_STRUCTURAL_POLISH_FLOWS = [
 PARETO_AREA_STRUCTURAL_POLISH_FLOWS = [
     PostFlow("pareto_raw", ""),
     PostFlow("pareto_area_cleanup", "strash; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("pareto_dsd_balance", "&get; &dsdb -K 6 -C 16 -R 100; &put; strash; dc2; balance"),
 ]
 
 HYBRID_YOSYS_POLISH_FLOWS = [
@@ -366,6 +393,15 @@ REPRODUCE_DEEPSYN_MIN_AREA = 2500
 REPRODUCE_PARETO_AREA_STRUCTURAL_TIMEOUT = 140
 REPRODUCE_PARETO_AREA_SECONDS = 80
 REPRODUCE_PARETO_AREA_MIN_AREA = 25000
+REPRODUCE_MY_DEEPSYN_ALL_SECONDS = 60
+REPRODUCE_MY_DEEPSYN_ALL_TIMEOUT = 90
+REPRODUCE_MY_DEEPSYN_ALL_MIN_AREA = 500
+REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS = 120
+REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS = 360
+REPRODUCE_LONG_LARGE_STRUCTURAL_TIMEOUT_MARGIN = 120
+REPRODUCE_LONG_LARGE_STRUCTURAL_MIN_AREA = 25000
+REPRODUCE_LONG_LARGE_STRUCTURAL_MIN_ADP = 500000
+REPRODUCE_LONG_LARGE_TTOPT_ROUNDS = 60
 REPRODUCE_COMPACT_PARETO_STRUCTURAL_TIMEOUT = 120
 REPRODUCE_COMPACT_PARETO_SECONDS = 55
 REPRODUCE_COMPACT_PARETO_PASSES = 10
@@ -380,6 +416,8 @@ REPRODUCE_VECTOR_REFINE_PASSES = 3
 REPRODUCE_VECTOR_MIN_ADP = 8000
 REPRODUCE_HYBRID_STRUCTURAL_TIMEOUT = 90
 REPRODUCE_HYBRID_WORKERS = 2
+REPRODUCE_AREA_FIRST_TIMEOUT = 90
+REPRODUCE_AREA_FIRST_PASSES = 3
 REPRODUCE_RECIPE = [
     (
         "1",
@@ -388,159 +426,128 @@ REPRODUCE_RECIPE = [
         f"all cases, max_candidates={REPRODUCE_MAIN_MAX_CANDIDATES}, seed={REPRODUCE_SEED}",
     ),
     (
-        "2-4",
-        "arithmetic_template_ranges",
-        "Revisit exact multiplier/square arithmetic ranges with deterministic template-heavy candidates.",
-        ", ".join(f"{start}-{end}" for start, end in REPRODUCE_ARITHMETIC_RANGES),
+        "2",
+        "focused_template_ranges",
+        "Revisit exact arithmetic (multiplier/square), divider quotient, and square-root template ranges.",
+        ", ".join(
+            f"{s}-{e}"
+            for s, e in list(REPRODUCE_ARITHMETIC_RANGES) + [REPRODUCE_DIVIDER_RANGE, REPRODUCE_SQRT_RANGE]
+        ),
     ),
     (
-        "5",
-        "divider_template_range",
-        "Revisit exact unsigned divider quotient candidates.",
-        f"{REPRODUCE_DIVIDER_RANGE[0]}-{REPRODUCE_DIVIDER_RANGE[1]}",
-    ),
-    (
-        "6",
-        "sqrt_template_range",
-        "Revisit exact integer square-root candidates.",
-        f"{REPRODUCE_SQRT_RANGE[0]}-{REPRODUCE_SQRT_RANGE[1]}",
-    ),
-    (
-        "7",
+        "3",
         "diagnosis_rescue",
         "Run bounded rescue on known diagnosis-sensitive cases using complement and history-guided GA.",
         ", ".join(REPRODUCE_RESCUE_CASES),
     ),
     (
-        "8",
-        "equivalence_checked_polish",
-        "Run fixed deterministic ABC cleanup packages on existing equivalent outputs.",
-        f"{REPRODUCE_POLISH_PASSES} passes, stops early on convergence",
-    ),
-    (
-        "9",
-        "all_case_refinement_package",
-        "Run a fixed all-case ABC/GIA refinement package.  This is deterministic, not a random sweep.",
-        f"{REPRODUCE_SWEEP_PASSES} passes, stops early on convergence",
-    ),
-    (
-        "10",
-        "final_all_case_refinement_package",
-        "Run the final fixed all-case refinement package for convergence.",
-        f"{REPRODUCE_FINAL_SWEEP_PASSES} passes, stops early on convergence",
-    ),
-    (
-        "11",
-        "fingerprint_guided_mockturtle_structural",
-        "Select at most two mockturtle structural modes per case from Boolean fingerprints, then ABC-polish and verify.",
-        f"timeout_per_case={REPRODUCE_MOCKTURTLE_STRUCTURAL_TIMEOUT}",
-    ),
-    (
-        "12",
-        "type_guided_final_refinement",
-        "Classify every case again and run a fixed circuit-family-specific ABC refinement package.",
-        f"max_flows={REPRODUCE_TYPE_GUIDED_MAX_FLOWS}, timeout_per_case={REPRODUCE_TYPE_GUIDED_TIMEOUT}",
-    ),
-    (
-        "13",
-        "objective_guided_area_delay_refinement",
-        "Run fixed area-first, delay-first, and balanced packages on every case and select by ADP.",
-        f"max_per_family={REPRODUCE_OBJECTIVE_MAX_PER_FAMILY}, timeout_per_case={REPRODUCE_OBJECTIVE_GUIDED_TIMEOUT}",
-    ),
-    (
-        "14",
-        "micro_guided_per_case_refinement",
-        "Run low-cost small-circuit refinement flows on every case, including collapse/factorization for compact functions.",
-        f"max_flows={REPRODUCE_MICRO_MAX_FLOWS}, timeout_per_case={REPRODUCE_MICRO_GUIDED_TIMEOUT}",
-    ),
-    (
-        "15",
-        "small_case_targeted_refinement",
-        "Run the small-case-only package for compact or low-ADP functions so small benchmarks are not starved.",
+        "4",
+        "polish_and_sweep_convergence",
+        "Run fixed deterministic polish packages then sweep packages until convergence.",
         (
-            f"max_flows={REPRODUCE_SMALL_CASE_MAX_FLOWS}, timeout_per_case={REPRODUCE_SMALL_CASE_TIMEOUT}, "
-            f"area_threshold={REPRODUCE_SMALL_CASE_AREA_THRESHOLD}, adp_threshold={REPRODUCE_SMALL_CASE_ADP_THRESHOLD}"
+            f"polish: up to {REPRODUCE_POLISH_PASSES} passes; "
+            f"sweep: up to {REPRODUCE_SWEEP_PASSES + REPRODUCE_FINAL_SWEEP_PASSES} passes; "
+            "focused front-range sweep; all stop early on convergence"
         ),
     ),
     (
-        "16",
-        "final_advanced_mockturtle_structural",
-        "Re-run fingerprint-selected advanced mockturtle structural modes on the final refined outputs.",
-        f"timeout_per_case={REPRODUCE_FINAL_ADVANCED_MOCKTURTLE_TIMEOUT}",
+        "5",
+        "mockturtle_structural",
+        "Fingerprint-guided mockturtle structural resynthesis; xag_xor_heavy and roundtrip_xag are always tried for large/high-delay cases.",
+        f"timeout_per_case={REPRODUCE_FINAL_ADVANCED_MOCKTURTLE_TIMEOUT}, max_modes=4",
     ),
     (
-        "17",
+        "6",
+        "type_and_objective_guided_refinement",
+        "Run circuit-family type-guided and area/delay/balanced objective-guided refinement on every case.",
+        (
+            f"type: max_flows={REPRODUCE_TYPE_GUIDED_MAX_FLOWS}, timeout={REPRODUCE_TYPE_GUIDED_TIMEOUT}; "
+            f"objective: max_per_family={REPRODUCE_OBJECTIVE_MAX_PER_FAMILY}, timeout={REPRODUCE_OBJECTIVE_GUIDED_TIMEOUT}"
+        ),
+    ),
+    (
+        "7",
+        "micro_and_small_case_refinement",
+        "Run micro-guided low-cost flows then the small-case targeted package on every case.",
+        (
+            f"micro: max_flows={REPRODUCE_MICRO_MAX_FLOWS}, timeout={REPRODUCE_MICRO_GUIDED_TIMEOUT}; "
+            f"small: max_flows={REPRODUCE_SMALL_CASE_MAX_FLOWS}, timeout={REPRODUCE_SMALL_CASE_TIMEOUT}, "
+            f"area<={REPRODUCE_SMALL_CASE_AREA_THRESHOLD} or adp<={REPRODUCE_SMALL_CASE_ADP_THRESHOLD}"
+        ),
+    ),
+    (
+        "8",
         "truth_table_structural_resynthesis",
         "Build shared BDD/MUX structures with ABC ttopt, then apply deterministic level-preserving transduction.",
         f"all cases, timeout_per_case={REPRODUCE_TTOPT_STRUCTURAL_TIMEOUT}, fixed output groups only",
     ),
     (
-        "18",
-        "bounded_deepsyn_structural_resynthesis",
-        "Apply deterministic LUT map/unmap structural resynthesis to remaining high-cost multi-output circuits.",
+        "9",
+        "deepsyn_and_pareto_area_structural",
+        "Bounded deepsyn LUT map/unmap, then area-Pareto structural search for large equal-width bottlenecks.",
         (
-            f"seed={REPRODUCE_SEED}, search_seconds={REPRODUCE_DEEPSYN_STRUCTURAL_SECONDS}, "
-            f"adp_threshold={REPRODUCE_DEEPSYN_MIN_ADP}, area_threshold={REPRODUCE_DEEPSYN_MIN_AREA}, "
-            f"max_passes={REPRODUCE_DEEPSYN_STRUCTURAL_PASSES}, "
-            "plus 16-input/8-output dropped-output practical-function shapes"
+            f"deepsyn: seed={REPRODUCE_SEED}, seconds={REPRODUCE_DEEPSYN_STRUCTURAL_SECONDS}, "
+            f"max_passes={REPRODUCE_DEEPSYN_STRUCTURAL_PASSES}; "
+            f"pareto: seed={REPRODUCE_SEED}, seconds={REPRODUCE_PARETO_AREA_SECONDS}, "
+            f"area>={REPRODUCE_PARETO_AREA_MIN_AREA}"
         ),
     ),
     (
-        "19",
-        "pareto_area_structural_resynthesis",
-        "Rebuild large equal-width multi-output bottlenecks with deterministic area-first Pareto structural search.",
+        "10",
+        "compact_vector_pareto_and_adaptive_probe",
+        "Compact low-degree vector Pareto fixed-point, then adaptive probe expansion for remaining compact cases.",
         (
-            f"seed={REPRODUCE_SEED}, search_seconds={REPRODUCE_PARETO_AREA_SECONDS}, "
-            f"area_threshold={REPRODUCE_PARETO_AREA_MIN_AREA}, ABC equivalence checked"
+            f"compact: max_passes={REPRODUCE_COMPACT_PARETO_PASSES}, seconds={REPRODUCE_COMPACT_PARETO_SECONDS}; "
+            f"adaptive: probe={REPRODUCE_VECTOR_PROBE_SECONDS}s, refine={REPRODUCE_VECTOR_REFINE_SECONDS}s"
         ),
     ),
     (
-        "20",
-        "compact_low_degree_pareto_structural",
-        "Detect compact equal-width low-ANF-degree vector functions and explore their area-delay Pareto frontier.",
+        "11",
+        "long_large_alternate_seed_structural",
+        "For remaining large equal-width vector bottlenecks, regenerate topology from truth tables with a long Pareto budget.",
         (
-            f"seed={REPRODUCE_SEED}, search_seconds={REPRODUCE_COMPACT_PARETO_SECONDS}, "
-            f"area_range={REPRODUCE_COMPACT_PARETO_MIN_AREA}..{REPRODUCE_COMPACT_PARETO_MAX_AREA - 1}, "
-            f"max_anf_degree={REPRODUCE_COMPACT_PARETO_MAX_ANF_DEGREE}, "
-            f"max_passes={REPRODUCE_COMPACT_PARETO_PASSES}, ABC equivalence checked"
+            f"ttopt_rounds={REPRODUCE_LONG_LARGE_TTOPT_ROUNDS}, "
+            f"probe={REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS}s, "
+            f"refine={REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS}s (only after improving probe)"
         ),
     ),
     (
-        "21",
-        "adaptive_compact_vector_pareto",
-        "Probe compact equal-width vector functions with a small structural budget, then expand only cases that improve.",
-        (
-            f"probe_seconds={REPRODUCE_VECTOR_PROBE_SECONDS}, refine_seconds={REPRODUCE_VECTOR_REFINE_SECONDS}, "
-            f"refine_passes={REPRODUCE_VECTOR_REFINE_PASSES}, min_adp={REPRODUCE_VECTOR_MIN_ADP}, "
-            "ABC equivalence checked"
-        ),
-    ),
-    (
-        "22",
+        "12",
         "yosys_mockturtle_hybrid_structural",
-        "Use safe symbol-free AIGER bridging into Yosys AIG remapping, then try fingerprint-selected mockturtle modes only from improved Yosys topology.",
+        "Safe symbol-free AIGER bridge into Yosys AIG remap, then fingerprint-selected mockturtle from improved seeds.",
         (
             f"all cases, timeout_per_case={REPRODUCE_HYBRID_STRUCTURAL_TIMEOUT}, "
-            f"mockturtle_workers={REPRODUCE_HYBRID_WORKERS}, ABC equivalence checked"
+            f"mockturtle_workers={REPRODUCE_HYBRID_WORKERS}"
         ),
     ),
     (
-        "23",
-        "micro_guided_fixed_point_convergence",
-        "Repeat the deterministic low-cost resubstitution/remapping package after all structural generators have settled.",
+        "13",
+        "area_first_refine",
+        "Apply area-aggressive ABC flows (resub, dc2, fraig, dch/if-K3, sopb) to all cases until convergence.",
+        (
+            f"max_passes={REPRODUCE_AREA_FIRST_PASSES}, "
+            f"timeout_per_case={REPRODUCE_AREA_FIRST_TIMEOUT}, stops early on convergence"
+        ),
+    ),
+    (
+        "14",
+        "my_deepsyn_all_case_sweep",
+        "Run &my_deepsyn -C area Pareto sweep on all cases with area >= threshold; "
+        "select min-ADP equivalent Pareto point. Covers LogicNets-style cases missed by the large-case Pareto stage.",
+        (
+            f"all cases with area>={REPRODUCE_MY_DEEPSYN_ALL_MIN_AREA}, "
+            f"seconds={REPRODUCE_MY_DEEPSYN_ALL_SECONDS}, "
+            f"timeout_per_case={REPRODUCE_MY_DEEPSYN_ALL_TIMEOUT}"
+        ),
+    ),
+    (
+        "15",
+        "final_micro_and_gia_convergence",
+        "Interleaved micro-guided resubstitution and GIA canonical cleanup until no further ADP improvement.",
         (
             f"max_passes={REPRODUCE_MICRO_CONVERGENCE_PASSES}, "
-            f"max_flows={REPRODUCE_MICRO_MAX_FLOWS}, "
-            f"timeout_per_case={REPRODUCE_MICRO_CONVERGENCE_TIMEOUT}, stops early on convergence"
-        ),
-    ),
-    (
-        "24",
-        "gia_canonical_fixed_point_convergence",
-        "Canonicalize final AIGs through GIA and repeat only while an equivalent lower-ADP result is found.",
-        (
-            f"max_passes={REPRODUCE_GIA_CANONICAL_MAX_PASSES}, "
-            f"timeout_per_pass={REPRODUCE_GIA_CANONICAL_TIMEOUT}, ABC equivalence checked"
+            f"micro_timeout={REPRODUCE_MICRO_CONVERGENCE_TIMEOUT}, "
+            f"gia_timeout={REPRODUCE_GIA_CANONICAL_TIMEOUT}, stops early on convergence"
         ),
     ),
 ]
@@ -2486,11 +2493,15 @@ def select_structural_mockturtle_modes(
     if current_area >= 20000 or current_adp >= 300000:
         add("dc_aig_rewrite", "large structural AIG after previous synthesis")
         add("aig_resub", "large structural AIG after previous synthesis")
+        add("xag_xor_heavy", "large AIG: XAG algebraic depth rewriting reduces delay")
+        add("roundtrip_xag", "large AIG: XAG roundtrip for delay reduction")
     if current_area <= 2500 or current_adp <= 50000:
         add("cut4_aig_xag_npn", "compact small-case cut rewriting")
     target_modes = max(1, max_modes)
     if current_delay >= 18 and len(modes) < target_modes:
         add("roundtrip_mig", "delay-oriented majority roundtrip")
+        add("xag_xor_heavy", "delay>=18: XAG algebraic depth rewriting")
+        add("roundtrip_xag", "delay>=18: XAG roundtrip for depth reduction")
     if len(modes) < target_modes:
         add("functional_reduction", "redundancy-oriented fallback")
     if len(modes) < target_modes:
@@ -2792,6 +2803,35 @@ def append_pareto_area_structural_csv(path: Path, rows: list[dict[str, object]])
         "flow_commands",
         "generated",
         "equivalent",
+        "area",
+        "delay",
+        "adp",
+        "improved",
+        "selected",
+        "error",
+    ]
+    with path.open("a", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fieldnames)
+        if not exists:
+            writer.writeheader()
+        for row in rows:
+            writer.writerow({name: row.get(name, "") for name in fieldnames})
+
+
+def append_long_large_structural_csv(path: Path, rows: list[dict[str, object]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    exists = path.is_file()
+    fieldnames = [
+        "case",
+        "seed",
+        "ttopt_rounds",
+        "search_seconds",
+        "initial_method",
+        "generated",
+        "equivalent",
+        "baseline_area",
+        "baseline_delay",
+        "baseline_adp",
         "area",
         "delay",
         "adp",
@@ -3894,6 +3934,22 @@ def should_probe_compact_vector_structural(table: TruthTable, area: int, adp: in
     )
 
 
+def should_run_long_large_structural(
+    table: TruthTable,
+    area: int,
+    adp: int,
+    min_area: int = REPRODUCE_LONG_LARGE_STRUCTURAL_MIN_AREA,
+    min_adp: int = REPRODUCE_LONG_LARGE_STRUCTURAL_MIN_ADP,
+) -> bool:
+    """Select expensive equal-width vector cases for alternate-seed reconstruction."""
+    return (
+        table.num_inputs == table.num_outputs
+        and table.num_outputs >= 8
+        and area >= min_area
+        and adp >= min_adp
+    )
+
+
 def run_pareto_area_structural_case(
     case: str,
     abc: Path,
@@ -4045,6 +4101,103 @@ def run_pareto_area_structural_case(
         ),
     )
     return rows, summary
+
+
+def run_long_large_structural_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    seed: int,
+    search_seconds: int,
+    ttopt_rounds: int,
+) -> CaseSummary:
+    """Try a long Pareto search from a truth-table-derived shared-topology seed."""
+    truth = benchmarks / f"{case}.truth"
+    table = read_truth(truth)
+    source = output / f"{case}.aig"
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    tmp = prepare_case_temp_dir(logs, "tmp_long_large_structural", case)
+    seed_output = tmp / "seed_output"
+    seed_output.mkdir(parents=True, exist_ok=True)
+    seed_aig = seed_output / f"{case}.aig"
+    row: dict[str, object] = {
+        "case": case,
+        "seed": seed % 101,
+        "ttopt_rounds": ttopt_rounds,
+        "search_seconds": search_seconds,
+        "initial_method": "ttopt_shared_seed_then_area_pareto",
+        "generated": 0,
+        "equivalent": 0,
+        "baseline_area": base_area,
+        "baseline_delay": base_delay,
+        "baseline_adp": base_adp,
+        "improved": 0,
+        "selected": 0,
+        "error": "",
+    }
+
+    seed_command = (
+        f"read_truth -xf {abc_path(truth, root)}; st; &get; "
+        f"&ttopt -I {table.num_inputs} -O {table.num_outputs} -X {ttopt_rounds}; &put; "
+        f"strash; dc2; balance; write_aiger -s {abc_path(seed_aig, root)}"
+    )
+    try:
+        run_abc(abc, seed_command, min(timeout_per_case, max(180, search_seconds // 2)), root)
+        row["generated"] = 1
+        if not is_equivalent(abc, truth, seed_aig, min(timeout_per_case, 120), root):
+            row["error"] = "ttopt seed is not equivalent"
+            append_long_large_structural_csv(logs / "long_large_structural.csv", [row])
+            return CaseSummary(case, base_area, base_delay, base_adp, base_area, base_delay, base_adp, 1.0, "long_large_structural/invalid_seed")
+    except subprocess.TimeoutExpired:
+        row["error"] = "ttopt seed timeout"
+        append_long_large_structural_csv(logs / "long_large_structural.csv", [row])
+        return CaseSummary(case, base_area, base_delay, base_adp, base_area, base_delay, base_adp, 1.0, "long_large_structural/timeout")
+    except Exception as exc:
+        row["error"] = str(exc)[:500]
+        append_long_large_structural_csv(logs / "long_large_structural.csv", [row])
+        return CaseSummary(case, base_area, base_delay, base_adp, base_area, base_delay, base_adp, 1.0, "long_large_structural/error")
+
+    try:
+        run_pareto_area_structural_case(
+            case,
+            abc,
+            benchmarks,
+            seed_output,
+            tmp / "nested_area_pareto",
+            max(timeout_per_case, search_seconds + 90),
+            root,
+            seed,
+            search_seconds,
+        )
+        area, delay, adp = measure_adp(abc, seed_aig, 120, root)
+        equivalent = is_equivalent(abc, truth, seed_aig, 120, root)
+        row.update({"equivalent": int(equivalent), "area": area, "delay": delay, "adp": adp})
+        if equivalent and adp < base_adp:
+            shutil.copyfile(seed_aig, source)
+            row.update({"improved": 1, "selected": 1})
+            print(f"[{case}] long large structural improved ADP {base_adp} -> {adp}")
+            summary = CaseSummary(
+                case, base_area, base_delay, base_adp, area, delay, adp,
+                base_adp / adp, "long_large_structural/ttopt_seed_area_pareto",
+            )
+        else:
+            print(f"[{case}] long large structural kept current ADP {base_adp}")
+            summary = CaseSummary(
+                case, base_area, base_delay, base_adp, base_area, base_delay, base_adp,
+                1.0, "long_large_structural/no_improvement",
+            )
+    except subprocess.TimeoutExpired:
+        row["error"] = "area-Pareto search timeout"
+        summary = CaseSummary(case, base_area, base_delay, base_adp, base_area, base_delay, base_adp, 1.0, "long_large_structural/timeout")
+    except Exception as exc:
+        row["error"] = str(exc)[:500]
+        summary = CaseSummary(case, base_area, base_delay, base_adp, base_area, base_delay, base_adp, 1.0, "long_large_structural/error")
+    append_long_large_structural_csv(logs / "long_large_structural.csv", [row])
+    return summary
 
 
 def run_adaptive_compact_vector_pareto(
@@ -4938,6 +5091,123 @@ def run_gia_canonical_convergence_case(
         selected_method="gia_canonical_fixed_point",
     )
     return rows, summary
+
+
+def run_area_first_refine_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+) -> tuple[list[CandidateResult], CaseSummary]:
+    truth = benchmarks / f"{case}.truth"
+    source = output / f"{case}.aig"
+    if not source.is_file():
+        raise RuntimeError(f"missing existing AIG: {source}")
+    tmp = prepare_case_temp_dir(logs, "tmp_area_first", case)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 120, root)
+    results = [
+        CandidateResult(
+            case=case,
+            initial_method="existing_output",
+            flow_name="current",
+            flow_commands="",
+            area=base_area,
+            delay=base_delay,
+            adp=base_adp,
+            equivalent=True,
+            status="OK",
+            aig=source,
+        )
+    ]
+    best = results[0]
+    deadline = time.monotonic() + timeout_per_case
+
+    # Phase 1: apply area-first flows to existing AIG
+    for index, flow in enumerate(AREA_FIRST_FLOWS):
+        remaining = max(1, int(deadline - time.monotonic()))
+        if remaining <= 1:
+            break
+        candidate_aig = tmp / f"{case}_{index:02d}_{flow.name}.aig"
+        result = CandidateResult(
+            case=case,
+            initial_method="existing_output_area_first",
+            flow_name=flow.name,
+            flow_commands=flow.commands,
+            aig=candidate_aig,
+        )
+        try:
+            polish_aig(abc, source, flow, candidate_aig, min(remaining, 60), root)
+            result.equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 60), root)
+            if result.equivalent:
+                result.area, result.delay, result.adp = measure_adp(abc, candidate_aig, min(remaining, 30), root)
+                result.status = "OK"
+                if result.adp is not None and result.adp < (best.adp or 10**30):
+                    best = result
+            else:
+                result.status = "NOT_EQUIV"
+        except subprocess.TimeoutExpired:
+            result.status = "TIMEOUT"
+        except Exception:
+            result.status = "ERROR"
+        results.append(result)
+
+    # Phase 2: re-synthesize from truth table with area-first flows
+    for index, flow in enumerate(AREA_FIRST_RESYNTH_FLOWS):
+        remaining = max(1, int(deadline - time.monotonic()))
+        if remaining <= 1:
+            break
+        candidate_aig = tmp / f"{case}_resynth_{index:02d}_{flow.name}.aig"
+        result = CandidateResult(
+            case=case,
+            initial_method="resynth_area_first",
+            flow_name=flow.name,
+            flow_commands=flow.commands,
+            aig=candidate_aig,
+        )
+        try:
+            cmd = f"read_truth -xf {abc_path(truth, root)}; st; {flow.commands}; write_aiger -s {abc_path(candidate_aig, root)}"
+            run_abc(abc, cmd, min(remaining, 60), root)
+            if candidate_aig.exists():
+                result.equivalent = is_equivalent(abc, truth, candidate_aig, min(remaining, 60), root)
+                if result.equivalent:
+                    result.area, result.delay, result.adp = measure_adp(abc, candidate_aig, min(remaining, 30), root)
+                    result.status = "OK"
+                    if result.adp is not None and result.adp < (best.adp or 10**30):
+                        best = result
+                else:
+                    result.status = "NOT_EQUIV"
+            else:
+                result.status = "ERROR"
+        except subprocess.TimeoutExpired:
+            result.status = "TIMEOUT"
+        except Exception:
+            result.status = "ERROR"
+        results.append(result)
+
+    # Write best result if improved
+    if best.adp is not None and best.adp < base_adp:
+        shutil.copyfile(best.aig, source)
+        best.selected = True
+        print(f"[{case}] area_first improved ADP {base_adp} -> {best.adp} via {best.flow_name}")
+    else:
+        results[0].selected = True
+
+    summary = CaseSummary(
+        case=case,
+        baseline_area=base_area,
+        baseline_delay=base_delay,
+        baseline_adp=base_adp,
+        best_area=best.area or base_area,
+        best_delay=best.delay or base_delay,
+        best_adp=best.adp or base_adp,
+        improvement_ratio=base_adp / (best.adp or base_adp),
+        selected_method=f"area_first/{best.flow_name}",
+    )
+    return results, summary
 
 
 def run_small_case_refine_case(
@@ -6563,7 +6833,9 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
     write_reproduce_recipe(args.logs)
     print(format_reproduce_recipe())
     print("")
-    print("[reproduce] stage 1/24: full hybrid synthesis search")
+
+    # --- stage 1/14: full hybrid synthesis search ---
+    print("[reproduce] stage 1/14: full hybrid synthesis search")
     for case in ALL_CASES:
         print(f"[{case}] optimizing")
         rows, summary = optimize_case(
@@ -6584,10 +6856,12 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    for range_index, (start_case, end_case) in enumerate(REPRODUCE_ARITHMETIC_RANGES, start=2):
-        print(f"[reproduce] stage {range_index}/24: focused arithmetic range {start_case}-{end_case}")
+    # --- stage 2/14: focused arithmetic / divider / sqrt ranges (merged) ---
+    print("[reproduce] stage 2/14: focused arithmetic, divider, and sqrt template ranges")
+    focused_ranges = list(REPRODUCE_ARITHMETIC_RANGES) + [REPRODUCE_DIVIDER_RANGE, REPRODUCE_SQRT_RANGE]
+    for start_case, end_case in focused_ranges:
         for case in inclusive_cases(start_case, end_case):
-            print(f"[{case}] optimizing focused range")
+            print(f"[{case}] optimizing focused range {start_case}-{end_case}")
             rows, summary = optimize_case(
                 case,
                 args.abc,
@@ -6606,55 +6880,8 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             selected = next(row for row in rows if row.selected)
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print(
-        f"[reproduce] stage 5/24: focused divider quotient range "
-        f"{REPRODUCE_DIVIDER_RANGE[0]}-{REPRODUCE_DIVIDER_RANGE[1]}"
-    )
-    for case in inclusive_cases(*REPRODUCE_DIVIDER_RANGE):
-        print(f"[{case}] optimizing focused divider range")
-        rows, summary = optimize_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_FOCUSED_MAX_CANDIDATES,
-            REPRODUCE_SEED,
-            args.timeout_per_case,
-            root,
-            False,
-            True,
-            False,
-        )
-        step_results.extend(rows)
-        selected = next(row for row in rows if row.selected)
-        print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
-
-    print(
-        f"[reproduce] stage 6/24: focused square-root range "
-        f"{REPRODUCE_SQRT_RANGE[0]}-{REPRODUCE_SQRT_RANGE[1]}"
-    )
-    for case in inclusive_cases(*REPRODUCE_SQRT_RANGE):
-        print(f"[{case}] optimizing focused sqrt range")
-        rows, summary = optimize_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_FOCUSED_MAX_CANDIDATES,
-            REPRODUCE_SEED,
-            args.timeout_per_case,
-            root,
-            False,
-            True,
-            False,
-        )
-        step_results.extend(rows)
-        selected = next(row for row in rows if row.selected)
-        print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
-
-    print("[reproduce] stage 7/24: focused diagnosis-driven rescue cases")
+    # --- stage 3/14: diagnosis-driven rescue ---
+    print("[reproduce] stage 3/14: focused diagnosis-driven rescue cases")
     for case in REPRODUCE_RESCUE_CASES:
         print(f"[{case}] optimizing focused rescue case")
         rows, summary = optimize_case(
@@ -6677,12 +6904,13 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         selected = next(row for row in rows if row.selected)
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    print("[reproduce] stage 8/24: equivalence-checked polish passes")
+    # --- stage 4/14: polish + sweep convergence (merged stages 8, 9, 10) ---
+    # Run polish flows first, then sweep flows, both until convergence.
+    print("[reproduce] stage 4/14: equivalence-checked polish and sweep convergence")
     for pass_index in range(REPRODUCE_POLISH_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[polish] pass {pass_index + 1}/{REPRODUCE_POLISH_PASSES}")
         for case in ALL_CASES:
-            print(f"[{case}] polishing existing output")
             rows, summary = polish_existing_case(
                 case,
                 args.abc,
@@ -6702,15 +6930,13 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         best_total = sum(row.best_adp for row in pass_summaries)
         print(f"[polish] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
-            print("[polish] converged: no pass-level ADP improvement")
+            print("[polish] converged")
             break
 
-    print("[reproduce] stage 9/24: deterministic all-case refinement package")
-    for pass_index in range(REPRODUCE_SWEEP_PASSES):
+    for pass_index in range(REPRODUCE_SWEEP_PASSES + REPRODUCE_FINAL_SWEEP_PASSES):
         pass_summaries = []
-        print(f"[refine] all cases pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
+        print(f"[sweep] all cases pass {pass_index + 1}")
         for case in ALL_CASES:
-            print(f"[{case}] sweeping existing output")
             rows, summary = sweep_existing_case(
                 case,
                 args.abc,
@@ -6728,17 +6954,16 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
         baseline_total = sum(row.baseline_adp for row in pass_summaries)
         best_total = sum(row.best_adp for row in pass_summaries)
-        print(f"[refine] all cases pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        print(f"[sweep] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
-            print("[refine] converged: no pass-level ADP improvement")
+            print("[sweep] converged")
             break
 
     front_cases = inclusive_cases(*REPRODUCE_FRONT_RANGE)
     for pass_index in range(REPRODUCE_SWEEP_PASSES):
         pass_summaries = []
-        print(f"[refine] focused {REPRODUCE_FRONT_RANGE[0]}-{REPRODUCE_FRONT_RANGE[1]} pass {pass_index + 1}/{REPRODUCE_SWEEP_PASSES}")
+        print(f"[sweep] focused {REPRODUCE_FRONT_RANGE[0]}-{REPRODUCE_FRONT_RANGE[1]} pass {pass_index + 1}")
         for case in front_cases:
-            print(f"[{case}] sweeping existing output")
             rows, summary = sweep_existing_case(
                 case,
                 args.abc,
@@ -6754,40 +6979,14 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
         baseline_total = sum(row.baseline_adp for row in pass_summaries)
         best_total = sum(row.best_adp for row in pass_summaries)
-        print(f"[refine] focused pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        print(f"[sweep] focused pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
-            print("[refine] focused range converged: no pass-level ADP improvement")
+            print("[sweep] focused range converged")
             break
 
-    print("[reproduce] stage 10/24: final all-case deterministic refinement package")
-    for pass_index in range(REPRODUCE_FINAL_SWEEP_PASSES):
-        pass_summaries = []
-        print(f"[refine] final all cases pass {pass_index + 1}/{REPRODUCE_FINAL_SWEEP_PASSES}")
-        for case in ALL_CASES:
-            print(f"[{case}] sweeping existing output")
-            rows, summary = sweep_existing_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                args.timeout_per_case,
-                root,
-                args.try_mockturtle,
-                args.mockturtle_bin,
-            )
-            step_results.extend(rows)
-            pass_summaries.append(summary)
-            selected = next(row for row in rows if row.selected)
-            print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
-        baseline_total = sum(row.baseline_adp for row in pass_summaries)
-        best_total = sum(row.best_adp for row in pass_summaries)
-        print(f"[refine] final pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
-        if best_total >= baseline_total:
-            print("[refine] final all-case package converged: no pass-level ADP improvement")
-            break
-
-    print("[reproduce] stage 11/24: fingerprint-guided mockturtle structural resynthesis")
+    # --- stage 5/14: mockturtle structural resynthesis (merged 11 + 16) ---
+    # Single pass with the larger timeout (90s) covers both former stages.
+    print("[reproduce] stage 5/14: fingerprint-guided mockturtle structural resynthesis")
     ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
     if not ok:
         print(f"[mockturtle-structural] unavailable, skipping: {error}")
@@ -6800,13 +6999,15 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 args.benchmarks,
                 args.output,
                 args.logs,
-                REPRODUCE_MOCKTURTLE_STRUCTURAL_TIMEOUT,
+                REPRODUCE_FINAL_ADVANCED_MOCKTURTLE_TIMEOUT,
                 root,
                 args.mockturtle_structural_bin,
                 None,
+                max_modes=4,
             )
 
-    print("[reproduce] stage 12/24: final type-guided circuit-family refinement")
+    # --- stage 6/14: type-guided + objective-guided refinement (merged 12 + 13) ---
+    print("[reproduce] stage 6/14: type-guided and objective-guided circuit-family refinement")
     for case in ALL_CASES:
         print(f"[{case}] type-guided refine")
         run_type_guided_refine_case(
@@ -6819,10 +7020,6 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             root,
             REPRODUCE_TYPE_GUIDED_MAX_FLOWS,
         )
-
-    print("[reproduce] stage 13/24: objective-guided area/delay/balanced refinement")
-    for case in ALL_CASES:
-        print(f"[{case}] objective-guided refine")
         run_objective_guided_refine_case(
             case,
             args.abc,
@@ -6834,9 +7031,10 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_OBJECTIVE_MAX_PER_FAMILY,
         )
 
-    print("[reproduce] stage 14/24: micro-guided per-case refinement")
+    # --- stage 7/14: micro-guided + small-case refinement (merged 14 + 15) ---
+    print("[reproduce] stage 7/14: micro-guided and small-case targeted refinement")
     for case in ALL_CASES:
-        print(f"[{case}] micro-guided refine")
+        print(f"[{case}] micro + small refine")
         run_micro_guided_refine_case(
             case,
             args.abc,
@@ -6847,10 +7045,6 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             root,
             REPRODUCE_MICRO_MAX_FLOWS,
         )
-
-    print("[reproduce] stage 15/24: small-case targeted refinement")
-    for case in ALL_CASES:
-        print(f"[{case}] small-case refine")
         run_small_case_refine_case(
             case,
             args.abc,
@@ -6864,26 +7058,8 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_SMALL_CASE_ADP_THRESHOLD,
         )
 
-    print("[reproduce] stage 16/24: final advanced mockturtle structural refinement")
-    ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
-    if not ok:
-        print(f"[mockturtle-structural] unavailable, skipping: {error}")
-    else:
-        for case in ALL_CASES:
-            print(f"[{case}] final advanced mockturtle structural")
-            run_mockturtle_structural_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_FINAL_ADVANCED_MOCKTURTLE_TIMEOUT,
-                root,
-                args.mockturtle_structural_bin,
-                None,
-            )
-
-    print("[reproduce] stage 17/24: truth-table structural resynthesis and level-preserving transduction")
+    # --- stage 8/14: truth-table structural resynthesis ---
+    print("[reproduce] stage 8/14: truth-table structural resynthesis and level-preserving transduction")
     for case in ALL_CASES:
         print(f"[{case}] ttopt structural")
         run_ttopt_structural_case(
@@ -6896,7 +7072,8 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             root,
         )
 
-    print("[reproduce] stage 18/24: bounded deterministic deepsyn structural resynthesis")
+    # --- stage 9/14: deepsyn + area-Pareto structural resynthesis (merged 18 + 19) ---
+    print("[reproduce] stage 9/14: bounded deepsyn and area-Pareto structural resynthesis")
     for pass_index in range(REPRODUCE_DEEPSYN_STRUCTURAL_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[deepsyn-structural] pass {pass_index + 1}/{REPRODUCE_DEEPSYN_STRUCTURAL_PASSES}")
@@ -6923,10 +7100,9 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         best_total = sum(row.best_adp for row in pass_summaries)
         print(f"[deepsyn-structural] pass {pass_index + 1} active total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
-            print("[deepsyn-structural] converged: no pass-level ADP improvement")
+            print("[deepsyn-structural] converged")
             break
 
-    print("[reproduce] stage 19/24: deterministic area-Pareto structural resynthesis")
     for case in ALL_CASES:
         table = read_truth(args.benchmarks / f"{case}.truth")
         area, _delay, _adp = measure_adp(args.abc, args.output / f"{case}.aig", 120, root)
@@ -6945,7 +7121,8 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_PARETO_AREA_SECONDS,
         )
 
-    print("[reproduce] stage 20/24: compact low-degree vector Pareto structural resynthesis")
+    # --- stage 10/14: compact vector Pareto + adaptive probe (merged 20 + 21) ---
+    print("[reproduce] stage 10/14: compact low-degree vector Pareto and adaptive probe")
     compact_cases: list[str] = []
     for case in ALL_CASES:
         table = read_truth(args.benchmarks / f"{case}.truth")
@@ -6973,10 +7150,9 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         best_total = sum(row.best_adp for row in pass_summaries)
         print(f"[compact-pareto] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
-            print("[compact-pareto] converged: no pass-level ADP improvement")
+            print("[compact-pareto] converged")
             break
 
-    print("[reproduce] stage 21/24: adaptive compact vector Pareto probe and refinement")
     run_adaptive_compact_vector_pareto(
         ALL_CASES,
         args.abc,
@@ -6987,7 +7163,46 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         REPRODUCE_SEED,
     )
 
-    print("[reproduce] stage 22/24: safe Yosys/mockturtle hybrid structural remapping")
+    # --- stage 11/14: long large-vector alternate-seed reconstruction ---
+    print("[reproduce] stage 11/14: adaptive long alternate-seed reconstruction for large vector bottlenecks")
+    long_refine_cases: list[str] = []
+    for case in ALL_CASES:
+        table = read_truth(args.benchmarks / f"{case}.truth")
+        area, _delay, adp = measure_adp(args.abc, args.output / f"{case}.aig", 120, root)
+        if not should_run_long_large_structural(table, area, adp):
+            continue
+        print(f"[{case}] long large structural probe ({REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS}s search budget)")
+        summary = run_long_large_structural_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS + REPRODUCE_LONG_LARGE_STRUCTURAL_TIMEOUT_MARGIN,
+            root,
+            REPRODUCE_SEED,
+            REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS,
+            REPRODUCE_LONG_LARGE_TTOPT_ROUNDS,
+        )
+        if summary.best_adp < summary.baseline_adp:
+            long_refine_cases.append(case)
+    for case in long_refine_cases:
+        print(f"[{case}] long large structural refinement ({REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS}s search budget)")
+        run_long_large_structural_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS + REPRODUCE_LONG_LARGE_STRUCTURAL_TIMEOUT_MARGIN,
+            root,
+            REPRODUCE_SEED,
+            REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS,
+            REPRODUCE_LONG_LARGE_TTOPT_ROUNDS,
+        )
+
+    # --- stage 12/14: Yosys/mockturtle hybrid structural remapping ---
+    print("[reproduce] stage 12/14: safe Yosys/mockturtle hybrid structural remapping")
     yosys_bin, yosys_error = resolve_yosys_binary(args.yosys_bin)
     mockturtle_ok, mockturtle_error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
     mockturtle_bin = args.mockturtle_structural_bin if mockturtle_ok else None
@@ -7013,12 +7228,59 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 args.exact_max_inputs,
             )
 
-    print("[reproduce] stage 23/24: deterministic micro-guided fixed-point convergence")
+    # --- stage 13/15: area-first refinement ---
+    print("[reproduce] stage 13/15: area-first refinement (resub/dc2/fraig/dch-if convergence)")
+    for pass_index in range(REPRODUCE_AREA_FIRST_PASSES):
+        pass_summaries: list[CaseSummary] = []
+        print(f"[area-first] pass {pass_index + 1}/{REPRODUCE_AREA_FIRST_PASSES}")
+        for case in ALL_CASES:
+            print(f"[{case}] area-first refine")
+            rows, summary = run_area_first_refine_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                REPRODUCE_AREA_FIRST_TIMEOUT,
+                root,
+            )
+            step_results.extend(rows)
+            pass_summaries.append(summary)
+        baseline_total = sum(row.baseline_adp for row in pass_summaries)
+        best_total = sum(row.best_adp for row in pass_summaries)
+        print(f"[area-first] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        if best_total >= baseline_total:
+            print("[area-first] converged")
+            break
+
+    # --- stage 14/15: &my_deepsyn area-Pareto all-case sweep ---
+    # Runs &my_deepsyn -C area on every case with area >= min threshold.
+    # This covers the LogicNets-style cases that the large-case Pareto stage misses.
+    print("[reproduce] stage 14/15: &my_deepsyn area-Pareto all-case sweep")
+    for case in ALL_CASES:
+        area, _delay, _adp = measure_adp(args.abc, args.output / f"{case}.aig", 60, root)
+        if area is None or area < REPRODUCE_MY_DEEPSYN_ALL_MIN_AREA:
+            continue
+        print(f"[{case}] my_deepsyn all-case sweep (area={area})")
+        run_pareto_area_structural_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_MY_DEEPSYN_ALL_TIMEOUT,
+            root,
+            REPRODUCE_SEED,
+            REPRODUCE_MY_DEEPSYN_ALL_SECONDS,
+        )
+
+    # --- stage 15/15: final convergence — micro + GIA canonical (merged 24 + 25) ---
+    print("[reproduce] stage 15/15: deterministic micro-guided and GIA canonical fixed-point convergence")
     for pass_index in range(REPRODUCE_MICRO_CONVERGENCE_PASSES):
         pass_summaries: list[CaseSummary] = []
-        print(f"[micro-converge] pass {pass_index + 1}/{REPRODUCE_MICRO_CONVERGENCE_PASSES}")
+        print(f"[final-converge] pass {pass_index + 1}/{REPRODUCE_MICRO_CONVERGENCE_PASSES}")
         for case in ALL_CASES:
-            print(f"[{case}] micro-guided convergence")
+            print(f"[{case}] micro + GIA convergence")
             _rows, summary = run_micro_guided_refine_case(
                 case,
                 args.abc,
@@ -7030,26 +7292,22 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 REPRODUCE_MICRO_MAX_FLOWS,
             )
             pass_summaries.append(summary)
+            run_gia_canonical_convergence_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                REPRODUCE_GIA_CANONICAL_TIMEOUT,
+                root,
+                REPRODUCE_GIA_CANONICAL_MAX_PASSES,
+            )
         baseline_total = sum(row.baseline_adp for row in pass_summaries)
         best_total = sum(row.best_adp for row in pass_summaries)
-        print(f"[micro-converge] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
+        print(f"[final-converge] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
-            print("[micro-converge] converged: no pass-level ADP improvement")
+            print("[final-converge] converged")
             break
-
-    print("[reproduce] stage 24/24: deterministic GIA canonical fixed-point convergence")
-    for case in ALL_CASES:
-        print(f"[{case}] GIA canonical convergence")
-        run_gia_canonical_convergence_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_GIA_CANONICAL_TIMEOUT,
-            root,
-            REPRODUCE_GIA_CANONICAL_MAX_PASSES,
-        )
 
     write_results_csv(args.logs / "reproduce_candidates.csv", step_results)
     final_results, final_summaries = verify_final_outputs(ALL_CASES, args.abc, args.benchmarks, args.output, root)
@@ -7069,6 +7327,8 @@ def polish_existing_case(
     logs: Path,
     timeout_per_case: int,
     root: Path,
+    try_mockturtle: bool = False,
+    mockturtle_bin: Path | None = None,
 ) -> tuple[list[CandidateResult], CaseSummary]:
     truth = benchmarks / f"{case}.truth"
     source = output / f"{case}.aig"
@@ -7325,6 +7585,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--micro-max-flows", type=int, default=4, help="maximum micro-guided refinement flows per case")
     parser.add_argument("--gia-canonical-converge", action="store_true", help="repeat deterministic GIA canonical cleanup while it lowers ADP")
     parser.add_argument("--gia-canonical-max-passes", type=int, default=16, help="maximum GIA canonical cleanup passes per case")
+    parser.add_argument("--area-first-refine", action="store_true", help="apply area-aggressive flows (resub/dc2/fraig/dch-if) to all selected cases")
     parser.add_argument("--small-case-refine", action="store_true", help="run a small-case-only refinement package selected by current area/ADP")
     parser.add_argument("--specialized-generators", action="store_true", help="run exact-match structural generators and accept only ADP improvements")
     parser.add_argument("--specialized-generate", action="store_true", help="alias for --specialized-generators")
@@ -7334,6 +7595,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--deepsyn-seconds", type=int, default=30, help="per-iteration search seconds for --deepsyn-structural")
     parser.add_argument("--pareto-area-structural", action="store_true", help="run deterministic area-first Pareto structural resynthesis with ABC &my_deepsyn")
     parser.add_argument("--pareto-area-seconds", type=int, default=80, help="search seconds for --pareto-area-structural")
+    parser.add_argument("--long-large-structural", action="store_true", help="run long alternate-seed Pareto reconstruction for large vector cases")
+    parser.add_argument("--long-large-seconds", type=int, default=600, help="area-Pareto search seconds for --long-large-structural")
+    parser.add_argument("--long-large-min-area", type=int, default=25000, help="minimum current area selected automatically for --long-large-structural")
+    parser.add_argument("--long-large-min-adp", type=int, default=500000, help="minimum current ADP selected automatically for --long-large-structural")
+    parser.add_argument("--ttopt-seed-rounds", type=int, default=60, help="truth-table topology synthesis rounds for --long-large-structural")
     parser.add_argument("--compact-low-degree-pareto", action="store_true", help="run area-Pareto structural resynthesis only on compact low-ANF-degree vector functions")
     parser.add_argument("--compact-vector-pareto-probe", action="store_true", help="probe compact equal-width vector functions and structurally refine only verified improvers")
     parser.add_argument("--hybrid-structural", action="store_true", help="run safe Yosys AIG remapping followed by conditional mockturtle structural resynthesis")
@@ -7874,6 +8140,23 @@ def main() -> int:
             summaries.append(summary)
         print_summary_totals("gia-canonical", summaries)
         return 0
+    if args.area_first_refine:
+        cases = selected_cases_from_args(args)
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] area-first refine")
+            _rows, summary = run_area_first_refine_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+            )
+            summaries.append(summary)
+        print_summary_totals("area-first", summaries)
+        return 0
     if args.small_case_refine:
         cases = selected_cases_from_args(args)
         summaries: list[CaseSummary] = []
@@ -8010,6 +8293,36 @@ def main() -> int:
             )
             summaries.append(summary)
         print_summary_totals("deepsyn-structural", summaries)
+        return 0
+    if args.long_large_structural:
+        cases = selected_cases_from_args(args)
+        if not args.case and not args.range:
+            selected: list[str] = []
+            for case in cases:
+                table = read_truth(args.benchmarks / f"{case}.truth")
+                area, _delay, adp = measure_adp(args.abc, args.output / f"{case}.aig", 120, root)
+                if should_run_long_large_structural(
+                    table, area, adp, args.long_large_min_area, args.long_large_min_adp
+                ):
+                    selected.append(case)
+            cases = selected
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] long large alternate-seed structural")
+            summary = run_long_large_structural_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                args.timeout_per_case,
+                root,
+                args.seed,
+                args.long_large_seconds,
+                args.ttopt_seed_rounds,
+            )
+            summaries.append(summary)
+        print_summary_totals("long-large-structural", summaries)
         return 0
     if args.compact_vector_pareto_probe:
         cases = selected_cases_from_args(args)

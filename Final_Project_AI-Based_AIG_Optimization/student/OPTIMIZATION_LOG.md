@@ -1822,3 +1822,613 @@ The new structural direction makes a substantial improvement in the compact
 LogicNets-style family, but the submission still does not reach the supplied
 reference total; the dominant remaining area gap is concentrated in the large
 vector functions such as `ex297` and `ex299`.
+
+### Adaptive Long-Running Reconstruction For Large Vector Bottlenecks
+
+- Diagnosed the largest reference gaps as area-dominated equal-width vector
+  functions.  `ex295`, `ex297`, and `ex299` have exact paired cyclic output
+  orbits, but direct representative-cone replication is larger than the
+  current jointly synthesized AIG.
+- Tested whether the paired outputs become a single quantized threshold
+  neuron under any 2-bit symbol ordering.  Exact monotonicity checks found no
+  valid encoding for `ex295`, `ex297`, or `ex299`, so no unproven
+  adder-tree/comparator template was added.
+- Extended area-Pareto frontier evaluation with deterministic GIA DSD
+  balancing:
+
+```text
+&get; &dsdb -K 6 -C 16 -R 100; &put; strash; dc2; balance
+```
+
+  This produced equivalent improved probe candidates for the large family and
+  is now a fixed Pareto cleanup choice.
+- Confirmed additional strict-ADP improvements from the corrected
+  frontier/cleanup evaluation:
+
+```text
+ex295: 127056 -> 122565
+ex297: 646443 -> 643820
+ex299: 2703864 -> 2701992
+```
+
+- Implemented `--long-large-structural`.  It creates a structurally distinct
+  seed directly from the truth table using whole-vector `&ttopt`, then applies
+  fixed-seed area-Pareto reconstruction and DSD cleanup.  All candidates are
+  still ABC-equivalence checked and replace `output/` only on strict ADP
+  improvement.
+- A full 720-second validation on `ex299` correctly rejected the alternate
+  seed route:
+
+```text
+current verified output:        112583 x 24 = 2701992
+ttopt-seeded long candidate:     114108 x 25 = 2852700
+selection result:                rejected, current output retained
+```
+
+- Because a longer budget does not rescue every structural seed, the
+  reproduction stage is adaptive: it first performs a bounded large-vector
+  probe and allocates its longer refinement budget only to cases where that
+  new topology already yields an equivalent ADP decrease.  This retains
+  deterministic reproducibility without spending the largest runtime budget
+  on a disproven route.
+
+## 2026-05-30
+
+### Gap Analysis Against Reference
+
+- Compared all 100 cases against `reference_result.csv` to identify the
+  dominant improvement opportunities.
+- The reference total ADP is `6,696,028`; current submission was `10,449,199`
+  (ratio `1.56x`).
+- Classified each case by the structural pattern of the remaining gap:
+
+```text
+OUR_AREA_TOO_HIGH:   reference trades higher delay for much smaller area,
+                     winning on ADP (ex299, ex297, ex295, ex225, ex223, ...)
+SIMILAR_STRUCTURE:   area is close but delay differs by a few levels
+                     (ex206, ex207, ex220-ex227, ex298)
+BOTH_WORSE / DELAY_DOMINATED: smaller cases, both area and delay slightly off
+```
+
+- The dominant pattern is `OUR_AREA_TOO_HIGH`: for many cases the reference
+  area is 3-5x smaller than ours, with reference delay being higher.  The
+  conclusion is that the reference uses area-aggressive synthesis that
+  intentionally does not balance delay.
+
+### Area-First Refinement Pass
+
+- Added `AREA_FIRST_FLOWS` and `AREA_FIRST_RESYNTH_FLOWS` to
+  `student/flow_optimizer.py`: eleven flows that apply area-aggressive ABC
+  commands without any final balancing step, plus two re-synthesis flows that
+  rebuild the AIG from the truth table with area-first orientation.
+
+```text
+af_rw_rf_loop          rewrite -z; refactor -z loop x3; dc2
+af_dc2_x5              dc2 five times interleaved with rewrite/refactor
+af_fraig_rw_rf_x2      fraig + two rounds of rewrite -z/refactor -z/dc2
+af_dch_if3             dch; if -K 3 (smallest LUT bound) + area cleanup
+af_dch_if4             dch; if -K 4 + area cleanup
+af_resub8_n2_x2        resub -K 8 -N 2 applied twice
+af_resub10_n2          resub -K 10 -N 2
+af_collapse_sop_fx     collapse to SOP, fx sharing, area cleanup
+af_gia_compress2rs_x3  GIA compress2rs three times
+af_gia_dc2_compress    GIA dc2 alternated with compress2rs
+af_gia_mfs_compress    GIA mfs alternated with compress2rs
+af_resynth_collapse_fx fresh truth-table synthesis then collapse/fx/area
+af_resynth_dch_if4     fresh truth-table synthesis with dch/if-K4/area
+```
+
+- Added `run_area_first_refine_case()` function mirroring the existing sweep
+  pattern: starts from the current equivalent output, tries each flow, checks
+  ABC equivalence for any ADP-improving candidate, and replaces `output/` only
+  on strict ADP decrease.
+- Added `--area-first-refine` CLI flag for standalone use:
+
+```bash
+python3 student/flow_optimizer.py --area-first-refine --all \
+  --abc student/abc --benchmarks benchmarks --output output \
+  --logs student/logs --timeout-per-case 90
+```
+
+- Added `stage 26/26: area-first refinement` to `--reproduce-best` as the
+  final convergence stage, running up to three passes and stopping when a pass
+  finds no ADP improvement.
+- Added `REPRODUCE_AREA_FIRST_TIMEOUT = 90` and
+  `REPRODUCE_AREA_FIRST_PASSES = 3` constants.
+
+### Cases Improved By Area-First Refinement
+
+All improvements were ABC-equivalence checked before acceptance.
+
+```text
+ex221:  131,880  -> 131,760   (-120)   af_resub8_n2_x2
+ex227:  851,644  -> 851,368   (-276)   af_dc2_x5
+ex233:   24,624  ->  24,464   (-160)   af_resub8_n2_x2
+ex241:   28,252  ->  28,168   (-84)    af_resub10_n2
+ex245:   26,026  ->  26,004   (-22)    af_resub10_n2
+ex246:   10,998  ->  10,855   (-143)   af_rw_rf_loop / af_resub10_n2
+ex247:   13,351  ->  13,273   (-78)    af_dch_if3
+ex252:   41,400  ->  40,336   (-1064)  af_resynth_collapse_fx
+ex270:    3,641  ->   3,608   (-33)    af_resub8_n2_x2
+ex282:    4,097  ->   4,063   (-34)    af_resub8_n2_x2
+ex286:   17,460  ->  17,406   (-54)    af_dc2_x5
+ex287:   14,326  ->  14,307   (-19)    af_resub8_n2_x2
+ex289:   22,040  ->  22,021   (-19)    af_resub8_n2_x2
+ex291:   80,320  ->  80,208   (-112)   af_rw_rf_loop
+ex292:  107,676  -> 107,568   (-108)   af_resub8_n2_x2
+ex294:  168,164  -> 167,518   (-646)   af_rw_rf_loop
+ex296:  136,206  -> 136,116   (-90)    af_rw_rf_loop
+ex297:  643,820  -> 639,100   (-4720)  af_dc2_x5
+ex299: 2,701,992 -> 2,699,184 (-2808)  af_resub8_n2_x2
+```
+
+### Current Verified Result After Area-First Refinement
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 10,429,623
+```
+
+Compared with the previous verified result:
+
+```text
+10,449,199 -> 10,429,623
+ADP reduction: 19,576
+```
+
+Compared with `reference_result.csv`:
+
+```text
+Current total ADP:   10,429,623
+Reference total ADP:  6,696,028
+Ratio:                  1.5576x
+```
+
+### Reproduction
+
+Stage 13 (area-first refinement, formerly stage 26) is part of
+`--reproduce-best`.  The standalone command to run only this stage is:
+
+```bash
+python3 student/flow_optimizer.py --area-first-refine --all \
+  --abc student/abc --benchmarks benchmarks --output output \
+  --logs student/logs --timeout-per-case 90
+```
+
+## 2026-05-30 (continued)
+
+### XAG Algebraic Depth Rewriting Breakthrough
+
+- Systematically tested mockturtle structural modes on the highest-gap cases.
+- **Key discovery**: `xag_xor_heavy` (XAG algebraic depth rewriting + constant
+  fanin optimization + XAG resubstitution) achieves large delay reductions on
+  multi-output equal-width functions, converting 1 level of delay into a
+  significant ADP gain because area stays roughly constant.
+
+Equivalence-verified improvements from `xag_xor_heavy`:
+
+```text
+ex299: 2,697,432 -> 2,636,329  (-61,103, -2.3%)  delay 24 -> 23
+ex297:   629,180 ->   601,464  (-27,716, -4.4%)  delay 20 -> 19
+ex227:   850,770 ->   821,326  (-29,444, -3.5%)  delay 23 -> 22
+ex207:   735,563 ->   714,032  (-21,531, -2.9%)  delay 23 -> 22
+ex294:   167,212 ->   160,128  ( -7,084, -4.2%)  delay 17 -> 16
+ex292:   107,496 ->   105,672  ( -1,824, -1.7%)  delay 18 -> 17
+```
+
+`roundtrip_xag` (lighter XAG rewriting) also improved:
+
+```text
+ex274:  29,337 -> 25,246  (-4,091)  delay 33 -> 26
+ex251:  63,987 -> 61,218  (-2,769)  delay 21 -> 19
+ex293: 133,888 -> 132,495  (-1,393)  delay 16 -> 15
+ex273:  19,860 -> 18,486  (-1,374)  delay 30 -> 26
+ex294: 167,212 -> 165,280  (-1,932)  roundtrip also effective
+```
+
+**Why this works**: XAG (XOR-AND Graph) algebraic rewriting can restructure
+AND-based logic into XOR-AND form, finding shorter paths through the XOR
+algebra that the AIG rewriting (which only manipulates AND/NOT) cannot see.
+The delay drops by 1-7 levels while area increases slightly, but since delay
+was the bottleneck for ADP, the net effect is strongly positive.
+
+**Stacked XAG passes**: Running `xag_xor_heavy` followed by `roundtrip_xag`
+yields additional gains because each pass reduces delay by one further level:
+
+```text
+ex297: 639,100 -> 601,464 (xag_xor_heavy, delay 20->19)
+              -> 584,190 (roundtrip_xag,   delay 19->18)   total: -54,910
+ex207: 735,563 -> 714,032 (xag_xor_heavy, delay 23->22)
+              -> 702,870 (roundtrip_xag,   delay 22->21)   total: -32,693
+ex227: 850,770 -> 821,326 (xag_xor_heavy, delay 23->22)
+              -> 802,326 (roundtrip_xag,   delay 22->21)   total: -48,444
+```
+
+**Integration**: The `select_structural_mockturtle_modes()` fingerprint
+selector now always includes `xag_xor_heavy` and `roundtrip_xag` for cases
+with `area >= 20000`, `adp >= 300000`, or `delay >= 18`.  Stage 5 of
+`--reproduce-best` now uses `max_modes=4` to ensure both XAG modes have room
+alongside `dc_aig_rewrite` and `aig_resub`.
+
+### Current Verified Result After XAG Structural Rewriting
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 10,197,451
+```
+
+Compared with the pre-XAG result:
+
+```text
+10,409,848 -> 10,197,451
+ADP reduction: 212,397
+```
+
+Compared with `reference_result.csv`:
+
+```text
+Current total ADP:   10,197,451
+Reference total ADP:  6,696,028
+Ratio:                  1.5229x
+```
+
+### Stage Consolidation: 26 → 14 Stages
+
+- Merged logically equivalent stage groups in `run_reproduce_best()` to reduce
+  the total number of stages from 26 to 14 and eliminate inter-stage redundancy.
+- No `run_*_case()` functions were modified; only the calling sequence changed.
+
+Merges performed:
+
+| Old stages | New stage | Description |
+|---|---|---|
+| 2-4, 5, 6 | 2 | All focused template ranges in one loop |
+| 8, 9, 10 | 4 | Polish + sweep: one convergence loop each |
+| 11, 16 | 5 | Two mockturtle structural passes → one (larger timeout) |
+| 12, 13 | 6 | Type-guided + objective-guided per case |
+| 14, 15 | 7 | Micro-guided + small-case per case |
+| 18, 19 | 9 | Deepsyn + area-Pareto structural |
+| 20, 21 | 10 | Compact Pareto + adaptive vector probe |
+| 24, 25 | 14 | Micro convergence + GIA canonical in same pass loop |
+
+Stage 26 (area-first) became stage 13, running before the final convergence
+(stage 14).  The `--show-reproduce-recipe` output now lists 14 stages.
+
+### New Area-First Flows From Systematic Exploration
+
+- Systematically explored ABC GIA commands not previously included in
+  `AREA_FIRST_FLOWS`:
+  - `&compress3rs` repeated 5 times
+  - `resub -K 12 -N 3` (larger cut window than existing `resub -K 8`)
+  - `&dsdb -K 6 -C 64; &compress3rs; &compress3rs; &compress3rs`
+  - `&dsd; &compress3rs; &compress3rs; &compress3rs`
+  - `&resyn3; &compress3rs; &resyn3; &compress3rs`
+- For cases like ex297 and ex252, `&compress3rs x5` found improvements that
+  all previous flows missed.  `&dsdb + compress3rs` was the strongest single
+  new flow on ex297 in the probe script (-7,280).
+- Added all five new flows to `AREA_FIRST_FLOWS`; they run automatically
+  in stage 13 of `--reproduce-best`.
+
+Also investigated **cyclic input-rotation symmetry** in ex295/ex297/ex299:
+- ex295 has 5/11 outputs that are cyclic rotations of out0
+- ex297 has 6/13 outputs with cyclic rotation
+- ex299 has 7/15 outputs with cyclic rotation
+- Reference area on these cases is 3.8–5.1x smaller, likely due to
+  exploiting this symmetry in a BDD-based synthesis route
+- Attempts to exploit the symmetry via wire-permuted BLIF instances did not
+  improve ADP because each rotation requires a separate circuit copy with no
+  node sharing; the approach needs a global BDD decomposition to be effective
+
+### Representative Improvements From New Flows
+
+```text
+ex252:   40,336  ->  34,275  (af_gia_compress3rs_x5, -15%)
+ex297:  639,100  -> 630,620  (af_gia_compress3rs_x5, -1.3%)
+ex299: 2,699,184 -> 2,697,432  (af_fraig_rw_rf_x2, -0.07%)
+ex221:  131,760  -> 131,320  (af_gia_compress3rs_x5)
+ex250:   51,414  ->  50,776  (af_gia_compress3rs_x5)
+ex291:   80,208  ->  79,920  (af_resub12_n3)
+ex247:   13,273  ->  13,078  (af_resub8_n2_x2)
+```
+
+### Current Verified Result
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 10,409,848
+```
+
+Compared with the previous verified result:
+
+```text
+10,429,623 -> 10,409,848
+ADP reduction: 19,775
+```
+
+Compared with `reference_result.csv`:
+
+```text
+Current total ADP:   10,409,848
+Reference total ADP:  6,696,028
+Ratio:                  1.5547x
+```
+
+## 2026-05-30 (continued)
+
+### XAG Algebraic Depth Rewriting Breakthrough
+
+Discovered that `xag_xor_heavy` (mockturtle XAG algebraic depth rewriting +
+constant fanin optimization + XAG resubstitution) achieves large delay
+reductions on multi-output equal-width functions by converting AND-based logic
+to XOR-AND form and finding shorter logic paths. Running `xag_xor_heavy` then
+`roundtrip_xag` in sequence gives further stacked delay reductions.
+
+Key improvements verified by ABC CEC:
+
+```text
+ex299: delay 24->23, ADP 2,697,432 -> 2,604,405  (-93,027 from xag stack)
+ex297: delay 20->18, ADP   639,100 ->   574,398  (-64,702 from xag stack)
+ex227: delay 23->20, ADP   851,644 ->   760,180  (-91,464 from xag stack)
+ex207: delay 23->21, ADP   735,563 ->   687,435  (-48,128 from xag stack)
+ex294: delay 17->16, ADP   167,212 ->   159,024  ( -8,188)
+ex293: delay 16->15, ADP   133,888 ->   127,935  ( -5,953)
+ex292: delay 18->16, ADP   107,496 ->   100,992  ( -6,504)
+ex291: delay 16->15, ADP    80,208 ->    78,360  ( -1,848)
+ex240: delay 22->19, ADP    47,498 ->    45,201  ( -2,297)
+ex244: delay 16->14, ADP     9,504 ->     9,100  (   -404)
+```
+
+**Integration into reproduce pipeline:**
+
+- `select_structural_mockturtle_modes()` now includes `xag_xor_heavy` and
+  `roundtrip_xag` whenever `area >= 20000`, `adp >= 300000`, or `delay >= 18`.
+- Stage 5 (`mockturtle_structural`) in `--reproduce-best` uses `max_modes=4`
+  to give both XAG modes room alongside `dc_aig_rewrite` and `aig_resub`.
+- No new stage needed; the XAG improvements reproduce through the existing
+  stage 5.
+
+### Stage Consolidation (26 → 14 Stages)
+
+Merged logically equivalent stage groups in `run_reproduce_best()` to reduce
+total stages from 26 to 14.  No `run_*_case()` functions were modified.
+
+| Old stages | New stage | Change |
+|---|---|---|
+| 2-4, 5, 6 | 2 | Arithmetic, divider, sqrt ranges unified |
+| 8, 9, 10 | 4 | Polish + sweep convergence loops unified |
+| 11, 16 | 5 | Two mockturtle structural passes → one (timeout 90s) |
+| 12, 13 | 6 | Type-guided + objective-guided per-case unified |
+| 14, 15 | 7 | Micro + small-case per-case unified |
+| 18, 19 | 9 | Deepsyn + area-Pareto structural unified |
+| 20, 21 | 10 | Compact Pareto + adaptive probe unified |
+| 24, 25 | 14 | Micro convergence + GIA canonical unified |
+
+### New Area-First Flows (stage 13)
+
+Added 5 new flows to `AREA_FIRST_FLOWS`:
+
+```text
+af_gia_compress3rs_x5   &compress3rs repeated 5 times
+af_resub12_n3           resub -K 12 -N 3
+af_gia_dsdb_compress3rs &dsdb -K 6 -C 64 then compress3rs x3
+af_gia_dsd_compress3rs  &dsd then compress3rs x3
+af_gia_resyn3_compress3 alternating &resyn3 and &compress3rs
+```
+
+These found improvements on ex252 (-6,061), ex297 (-4,720), ex221 (-440),
+ex291 (-288), ex233 (-160), among others.
+
+### Function Identification for BF16/FP16 Cases
+
+Analyzed truth tables for ex200-ex239 and identified the underlying functions:
+
+```text
+ex200-205: BF16 exp, exp2, exp10, log, log2, log10
+ex206-210: BF16 sin, tan, sinh, tanh, sigmoid
+ex211-219: BF16 recip, square, sqrt, ???, rsqrt, ???, cbrt, ???, ???
+ex220-225: FP16 exp, exp2, exp10, log, log2, log10
+ex226-231: FP16 sin, tan, sinh, tanh, sigmoid, recip
+ex232-239: FP16 ???, sqrt, ???, rsqrt, ???, cbrt, ???, ???
+```
+
+Key method:
+- Truth table output formula: `val = sum(outputs[i][j] << i for i in range(n))`
+  (outputs are LSB-first in the file)
+- Input ordering: j directly encodes the BF16/FP16 value (MSB = pi0)
+
+Identified tool is in `analysis/identify_functions.py` and results in
+`analysis/function_identification.csv`.
+
+Attempted to synthesize these functions as structured truth tables using ABC
+directly (`read_truth -xf` with generated truth table).  The pipeline works
+and produces equivalent AIGs, but the flat truth-table approach does not
+improve on the existing optimized outputs because it lacks semantic structure.
+Structured Verilog (sign/exp/mantissa decomposition) is needed to match the
+reference quality for ex200-ex239.
+
+### Current Verified Result
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 10,063,329
+```
+
+Compared with previous result:
+
+```text
+10,429,623 -> 10,063,329
+ADP reduction: 366,294
+```
+
+Compared with `reference_result.csv`:
+
+```text
+Current total ADP:   10,063,329
+Reference total ADP:  6,696,028
+Ratio:                  1.5029x
+Cases beating reference:  1/100 (ex280)
+Cases within 1.5x:       62/100
+Cases above 1.5x:        38/100
+Closest to 1.5x: ex282 (need -7 ADP), ex267 (need -28 ADP), ex279 (need -164 ADP)
+```
+
+Gap analysis saved to `analysis/gap_analysis_result.csv`.
+
+## 2026-05-30 (continued)
+
+### `&my_deepsyn` Area-Pareto Sweep — Breakthrough For High-Gap Cases
+
+- Identified that `&my_deepsyn -C area -T <sec> -O <dir>` (Pareto-front tracking with
+  area objective) is far more effective than either `&deepsyn` or `&my_deepsyn -C adp`
+  for the high-gap LogicNets-style cases in ex240-ex299.
+- `&my_deepsyn` builds a Pareto frontier iteratively; each generated AIG is evaluated
+  for both area and delay, and the best-ADP equivalent point is selected after full
+  ABC equivalence checking (`&cec`).
+- Unlike `&deepsyn` (which needs a large unoptimized AIG to start), `&my_deepsyn`
+  accepts the already-optimized current AIG and immediately explores structural changes.
+- A 60-second budget per case was sufficient for substantial improvements on compact
+  LogicNets-style cases.
+
+Key equivalence-verified improvements (60-second passes):
+
+```text
+ex252:  33,570 -> 15,708  (-17,862,  2.1x)   area 2238->714, delay 15->22
+ex248:  29,536 -> 13,482  (-16,054,  2.2x)   area 2272->642, delay 13->21
+ex241:  28,056 -> 15,092  (-12,964,  1.9x)   area 2004->1078
+ex247:  13,052 ->  6,416  ( -6,636,  2.0x)   area 1004->401
+ex240:  45,201 -> 35,260  ( -9,941,  1.3x)   area 2379->1763
+ex242:  28,226 -> 17,731  (-10,495,  1.6x)   area 1283->1043
+ex245:  25,894 -> 19,602  ( -6,292,  1.3x)   area 1177->891
+ex246:  10,500 ->  5,445  ( -5,055,  1.9x)   area 875->363
+ex217:  18,356 -> 14,742  ( -3,614,  1.2x)   area 706->567
+ex219:  17,496 -> 15,596  ( -1,900,  1.1x)   area 729->557
+ex265:     480 ->    376  (   -104,  1.3x)   area 60->47
+ex266:   1,460 ->  1,232  (   -228,  1.2x)   area 146->112
+ex268:   9,405 ->  8,655  (   -750,  1.1x)   area 627->577
+ex201:  26,537 -> 24,696  ( -1,841,  1.1x)   area 1561->1764 (delay 17->14)
+ex285:   7,259 ->  6,800  (   -459,  1.1x)
+... (additional minor improvements on ex253, ex260, ex267, ex269, ex270, ex276, ex277,
+     ex283, ex284, ex289, ex209)
+```
+
+Total ADP reduction from this pass: **~96,000**
+
+### Current Verified Result After `&my_deepsyn` Sweep
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 9,967,222
+```
+
+Compared with the pre-pass result:
+
+```text
+10,063,329 -> 9,967,222
+ADP reduction: 96,107
+```
+
+Compared with `reference_result.csv`:
+
+```text
+Current total ADP:   9,967,222
+Reference total ADP:  6,696,028
+Ratio:                  1.4885x
+```
+
+### Analysis: Why `&my_deepsyn` Works Here
+
+The LogicNets-style cases (ex240-ex299) have large area in our current AIGs
+because the existing ABC/mockturtle flows converged to local optima that
+cannot escape by incremental rewriting.  `&my_deepsyn` uses an internal
+random-restart structural search that generates genuinely new topologies,
+accepting them only on the Pareto frontier.  The key insight is:
+
+1. Start from the fully-polished current AIG (low delay).
+2. `&my_deepsyn -C area` aggressively trades delay for area.
+3. Among all Pareto AIGs generated, select the one with minimum ADP.
+4. Accept only if ABC CEC confirms equivalence.
+
+The 60-second budget covers 100-200 structural iterations on compact cases,
+which is enough to escape the local ADP minimum while remaining deterministic
+through fixed seeding.
+
+### Near-Win Case Focus: ex276 And ex272 Now Beat Reference
+
+After the `&my_deepsyn` all-case sweep, targeted 300-second runs on the
+closest-to-reference cases produced two new wins:
+
+**ex276** (8 inputs → 5 outputs):
+- Extended `&my_deepsyn -C area -T 300` from the already-improved AIG found
+  a Pareto point with area=74, delay=8, **ADP=592 < ref 632 (0.936x)**.
+- Applied and verified equivalent.
+
+**ex272** (12 inputs → 24 outputs):
+- `&sopb -C 16 -R 1` (SOP balancing with area bound) + balance reduced
+  delay from 22 to 19, giving area=564, delay=19, **ADP=10,716 < ref 10,880 (0.985x)**.
+- `&sopb` is now added to `AREA_FIRST_FLOWS` as `af_sopb_balance` so it runs
+  in stage 13 of `--reproduce-best` for all cases.
+
+**ex275** (8 inputs → 4 outputs):
+- Fresh truth-table synthesis + `&my_deepsyn -C area -T 300` improved
+  ADP from 228 → 222 (area=37, delay=6), but reference ADP=204 requires
+  area=34 at delay=6 — 3 fewer AND gates that ABC/mockturtle cannot find.
+- ex275 remains at 1.088x reference.
+
+### Cases Now Beating Reference: 3
+
+| Case | Our ADP | Ref ADP | Ratio |
+|------|---------|---------|-------|
+| ex280 | 2,338 | 2,415 | 0.968x |
+| ex276 | 592 | 632 | **0.936x** (new) |
+| ex272 | 10,716 | 10,880 | **0.985x** (new) |
+
+### Current Verified Result After Near-Win Focus
+
+```text
+Equivalent cases: 100/100
+Total ADP over equivalent cases: 9,963,184
+```
+
+Compared with previous result:
+
+```text
+9,967,222 -> 9,963,184
+ADP reduction: 4,038
+```
+
+### Flow Changes
+
+- Added `af_sopb_balance` (`&get; &sopb -C 16 -R 1; &put; balance; rewrite -z; refactor -z; balance`) to `AREA_FIRST_FLOWS` — effective for delay-bound cases.
+- Added `af_b_d_s_compress` (`&get; &b -d -s; &compress3rs; &compress3rs; &put; balance; rewrite -z; balance`) to `AREA_FIRST_FLOWS`.
+- Added stage 14/15 (`my_deepsyn_all_case_sweep`) to `run_reproduce_best`: runs `&my_deepsyn -C area -T 60` on every case with area ≥ 500. This covers the LogicNets-style cases that the earlier large-case Pareto stage (area ≥ 25000) missed.
+- Stage count increased from 14 to 15.
+
+### Remaining High-Gap Cases
+
+After this pass, the largest remaining gaps are:
+
+```text
+ex299: 2.57x (ADP 2,604,405 vs ref 1,013,807) — large vector function, area-dominated
+ex297: 2.54x (ADP   574,398 vs ref   225,900) — large vector function
+ex286: 6.97x (ADP    16,558 vs ref     2,376) — 13->13 compact function, hard to compress further
+ex252: 6.04x (ADP    15,708 vs ref     2,603) — 16->8 sparse function, 60s gives 714 area vs ref 137
+```
+
+The reference results for ex252 and ex286 (area 137 and 198 respectively)
+suggest a synthesis method that exploits structure not visible to the current
+ABC+mockturtle pipeline.  Extended `&my_deepsyn` runs (300 seconds) continued
+to push area down but at the cost of higher delay, so the ADP minimum at 60s
+was better than at 300s for these cases.
+
+### Reproduction
+
+The full `&my_deepsyn` sweep is integrated as a new analysis script:
+
+```bash
+python3 student/run_mydeepsyn_all.py
+```
+
+This runs a 60-second `&my_deepsyn -C area` pass on every case, checks all
+Pareto AIGs for equivalence, and replaces `output/exNNN.aig` only on strict
+ADP improvement.  Results are logged to `student/logs/mydeepsyn_sweep.csv`.
+
