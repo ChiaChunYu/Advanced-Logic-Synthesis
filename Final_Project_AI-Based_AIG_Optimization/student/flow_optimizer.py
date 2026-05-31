@@ -422,6 +422,8 @@ REPRODUCE_HYBRID_STRUCTURAL_TIMEOUT = 90
 REPRODUCE_HYBRID_WORKERS = 2
 REPRODUCE_AREA_FIRST_TIMEOUT = 90
 REPRODUCE_AREA_FIRST_PASSES = 3
+REPRODUCE_CASE_FAIR_TIMEOUT = 60
+REPRODUCE_CASE_FAIR_STAGE_TIMEOUT = 10
 REPRODUCE_RECIPE = [
     (
         "1",
@@ -548,6 +550,16 @@ REPRODUCE_RECIPE = [
     ),
     (
         "15",
+        "case_fair_final_refinement",
+        "Give every case the same final objective/micro/small/complement package before fixed-point convergence.",
+        (
+            f"timeout_per_case={REPRODUCE_CASE_FAIR_TIMEOUT}, "
+            f"stage_timeout={REPRODUCE_CASE_FAIR_STAGE_TIMEOUT}, "
+            "objective=1, micro=1, small=1, complement_budget=2"
+        ),
+    ),
+    (
+        "16",
         "final_micro_and_gia_convergence",
         "Interleaved micro-guided resubstitution and GIA canonical cleanup until no further ADP improvement.",
         (
@@ -7234,8 +7246,8 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 args.exact_max_inputs,
             )
 
-    # --- stage 13/15: area-first refinement ---
-    print("[reproduce] stage 13/15: area-first refinement (resub/dc2/fraig/dch-if convergence)")
+    # --- stage 13/16: area-first refinement ---
+    print("[reproduce] stage 13/16: area-first refinement (resub/dc2/fraig/dch-if convergence)")
     for pass_index in range(REPRODUCE_AREA_FIRST_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[area-first] pass {pass_index + 1}/{REPRODUCE_AREA_FIRST_PASSES}")
@@ -7259,10 +7271,10 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             print("[area-first] converged")
             break
 
-    # --- stage 14/15: &my_deepsyn area-Pareto all-case sweep ---
+    # --- stage 14/16: &my_deepsyn area-Pareto all-case sweep ---
     # Pass 1 (60s, up to 3 convergence rounds): every case with area >= PASS1 threshold.
     # Pass 2 (180s, 1 round): cases with area >= PASS2 threshold.
-    print("[reproduce] stage 14/15: &my_deepsyn area-Pareto all-case sweep")
+    print("[reproduce] stage 14/16: &my_deepsyn area-Pareto all-case sweep")
     # Measure once; update from summary after each run to avoid redundant ABC calls.
     case_area: dict[str, int] = {}
     for case in ALL_CASES:
@@ -7312,8 +7324,57 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             REPRODUCE_MY_DEEPSYN_PASS2_SECONDS,
         )
 
-    # --- stage 15/15: final convergence — micro + GIA canonical (merged 24 + 25) ---
-    print("[reproduce] stage 15/15: deterministic micro-guided and GIA canonical fixed-point convergence")
+    # --- stage 15/16: case-fair final refinement ---
+    print("[reproduce] stage 15/16: case-fair final refinement")
+    for case in ALL_CASES:
+        print(f"[{case}] case-fair final package")
+        run_objective_guided_refine_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_CASE_FAIR_STAGE_TIMEOUT,
+            root,
+            1,
+        )
+        run_micro_guided_refine_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_CASE_FAIR_STAGE_TIMEOUT,
+            root,
+            1,
+        )
+        run_small_case_refine_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_CASE_FAIR_STAGE_TIMEOUT,
+            root,
+            1,
+            REPRODUCE_SMALL_CASE_AREA_THRESHOLD,
+            REPRODUCE_SMALL_CASE_ADP_THRESHOLD,
+        )
+        run_complement_rescue_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_CASE_FAIR_STAGE_TIMEOUT,
+            root,
+            REPRODUCE_SEED,
+            2,
+            True,
+        )
+
+    # --- stage 16/16: final convergence — micro + GIA canonical (merged 24 + 25) ---
+    print("[reproduce] stage 16/16: deterministic micro-guided and GIA canonical fixed-point convergence")
     for pass_index in range(REPRODUCE_MICRO_CONVERGENCE_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[final-converge] pass {pass_index + 1}/{REPRODUCE_MICRO_CONVERGENCE_PASSES}")
@@ -7614,6 +7675,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--total-budget", type=int, default=5000, help="total candidate budget for score-aware scheduling")
     parser.add_argument("--contest-optimize", action="store_true", help="run fair contest-style scheduler over all selected cases")
     parser.add_argument("--case-fair-next-optimize", action="store_true", help="run the next deterministic fair refinement package on every selected case")
+    parser.add_argument("--case-fair-stage-timeout", type=int, default=12, help="maximum seconds for each sub-stage in --case-fair-next-optimize")
     parser.add_argument("--time-budget", type=int, default=3600, help="wall-clock time budget in seconds for --contest-optimize")
     parser.add_argument("--type-guided-refine", action="store_true", help="classify every selected case and run a fixed type-specific refinement package")
     parser.add_argument("--type-guided-max-flows", type=int, default=5, help="maximum type-guided ABC refinement flows per case")
@@ -7816,7 +7878,10 @@ def run_case_fair_next_optimize(args: argparse.Namespace, root: Path) -> None:
                 )
                 continue
             stages_left = len(stages) - stage_index + (1 if args.try_mockturtle and mockturtle_ok and args.mockturtle_max_modes > 0 else 0)
-            stage_timeout = min(2, max(1, remaining // max(1, stages_left)))
+            stage_timeout = min(
+                max(1, args.case_fair_stage_timeout),
+                max(1, remaining // max(1, stages_left)),
+            )
             before_area, before_delay, before_adp = measure_current(case)
             try:
                 if stage_name == "objective_guided":

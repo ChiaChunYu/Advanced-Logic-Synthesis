@@ -2451,20 +2451,20 @@ area_high:        both area and delay somewhat high (ex248, ex250, ex286, ex252,
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 9,938,929
+Total ADP over equivalent cases: 9,938,770
 ```
 
 Compared with previous verified result:
 
 ```text
-9,963,184 -> 9,938,929
-ADP reduction: 24,255
+9,963,184 -> 9,938,770
+ADP reduction: 24,414
 ```
 
 Compared with `reference_result.csv`:
 
 ```text
-Current total ADP:   9,938,929
+Current total ADP:   9,938,770
 Reference total ADP:  6,696,028
 Ratio:                  1.4843x
 Cases beating reference: 3/100 (ex276, ex280, ex272)
@@ -2484,3 +2484,46 @@ ex263: 2.13x  — delay-bound: our delay 35 vs ref 18
 ex262: 1.93x  — delay-bound: our delay 31 vs ref 20
 ```
 
+### Case-Fair Final Refinement And Post-Micro Cleanup
+
+- Improved `--case-fair-next-optimize` so each objective/micro/small/
+  complement sub-stage can use a real bounded budget instead of being capped
+  at two seconds.
+- Ran a full case-fair pass over all 100 benchmarks.  This gives small and
+  medium benchmarks the same final coverage as large ones while still
+  accepting only ABC-equivalent strict ADP improvements.
+- Followed with full micro-guided refinement and GIA canonical cleanup.
+- Integrated the case-fair pass into `--reproduce-best` as stage 15, before
+  final micro/GIA convergence, so the current result is reproduced by:
+
+```bash
+bash student/reproduce_best.sh
+```
+
+Verified result after this update:
+
+```text
+Equivalent cases: 100/100
+Previous total ADP: 9,938,770
+Current total ADP:  9,884,194
+ADP reduction:         54,576
+Reference total ADP: 6,696,028
+Current/reference:       1.4761x
+```
+
+Representative accepted reductions:
+
+```text
+ex201:  24696 ->  24430
+ex206: 611058 -> 603435
+ex207: 687435 -> 677964
+ex217:  13420 ->  13112
+ex221: 130606 -> 126749
+ex227: 760180 -> 751500
+ex244:   6560 ->   6480
+ex248:   8717 ->   8648
+ex274:  25246 ->  24050
+ex291:  78360 ->  76815
+ex297: 574398 -> 570960
+ex299:2604405 ->2595090
+```

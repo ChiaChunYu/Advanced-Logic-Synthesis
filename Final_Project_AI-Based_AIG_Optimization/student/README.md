@@ -37,9 +37,10 @@ single stage, but `reproduce_best.sh` is the command to use for complete
 result reproduction.
 
 Complete regeneration is intentionally long-running: the pipeline runs
-15 deterministic stages covering hybrid synthesis, structural resynthesis
+16 deterministic stages covering hybrid synthesis, structural resynthesis
 (ttopt, deepsyn, Pareto, mockturtle, Yosys hybrid), area-first refinement,
-`&my_deepsyn` all-case sweep, and final convergence passes.
+`&my_deepsyn` all-case sweep, case-fair final refinement, and final
+convergence passes.
 
 ## Required Environment
 
@@ -178,10 +179,12 @@ After structural candidates settle:
   GIA `compress2rs`, `&sopb`, `&b -d -s`) and two fresh truth-table
   re-synthesis candidates are tried on every case (stage 13)
 - `&my_deepsyn -C area` Pareto sweep on all cases with area ≥ 500 (stage 14)
+- case-fair final refinement gives every case the same objective/micro/small/
+  complement package before final convergence (stage 15)
 - interleaved micro-guided resubstitution and GIA canonical cleanup until no
-  further ADP improvement (stage 15)
+  further ADP improvement (stage 16)
 
-The pipeline runs **15 stages** in total.  Use `--show-reproduce-recipe` to
+The pipeline runs **16 stages** in total.  Use `--show-reproduce-recipe` to
 print the full stage list with parameters.
 
 Stage 5 (`mockturtle_structural`) now includes `xag_xor_heavy` and
@@ -196,7 +199,7 @@ The current submitted outputs have been checked with `evaluate.py`:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 9938929
+Total ADP over equivalent cases: 9884194
 ```
 
 3 cases beat the reference result (ex276, ex280, ex272).
