@@ -37,7 +37,7 @@ single stage, but `reproduce_best.sh` is the command to use for complete
 result reproduction.
 
 Complete regeneration is intentionally long-running: the pipeline runs
-16 deterministic stages covering hybrid synthesis, structural resynthesis
+17 deterministic stages covering hybrid synthesis, structural resynthesis
 (ttopt, deepsyn, Pareto, mockturtle, Yosys hybrid), area-first refinement,
 `&my_deepsyn` all-case sweep, case-fair final refinement, and final
 convergence passes.
@@ -183,8 +183,12 @@ After structural candidates settle:
   complement package before final convergence (stage 15)
 - interleaved micro-guided resubstitution and GIA canonical cleanup until no
   further ADP improvement (stage 16)
+- targeted 1.5x-ratio push refinement revisits cases that stayed above the
+  reference-ratio threshold during experiments, using the same
+  equivalence-gated area/type/objective/micro/GIA package that produced the
+  current outputs (stage 17)
 
-The pipeline runs **16 stages** in total.  Use `--show-reproduce-recipe` to
+The pipeline runs **17 stages** in total.  Use `--show-reproduce-recipe` to
 print the full stage list with parameters.
 
 Stage 5 (`mockturtle_structural`) now includes `xag_xor_heavy` and
@@ -199,10 +203,11 @@ The current submitted outputs have been checked with `evaluate.py`:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 9884194
+Total ADP over equivalent cases: 9859734
 ```
 
-3 cases beat the reference result (ex276, ex280, ex272).
+3 cases beat the reference result (ex276, ex280, ex272).  81 cases are within
+1.5x of the reference ADP after the latest targeted 1.5x-ratio push.
 
 Development history, per-stage experiments, and prior result comparisons are
 recorded separately in `student/OPTIMIZATION_LOG.md`.

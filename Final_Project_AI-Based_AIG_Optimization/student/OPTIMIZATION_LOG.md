@@ -2527,3 +2527,55 @@ ex291:  78360 ->  76815
 ex297: 574398 -> 570960
 ex299:2604405 ->2595090
 ```
+
+### 1.5x Reference-Ratio Push
+
+- Goal: reduce the number of benchmarks whose current ADP is more than 1.5x
+  the `reference_result.csv` ADP, with priority on near-threshold cases rather
+  than only total ADP.
+- Ran targeted deterministic rescue packages on the current verified outputs:
+  area-first SOPB/refactor flows, micro-guided resubstitution, GIA canonical
+  cleanup, longer area-Pareto `&my_deepsyn` for area bottlenecks, type-guided
+  refinement, and selected complement/transduction/mockturtle structural
+  probes.
+- All accepted replacements were checked by ABC equivalence and only kept when
+  ADP strictly decreased.
+
+Verified result after this update:
+
+```text
+Equivalent cases: 100/100
+Previous total ADP: 9,884,194
+Current total ADP:  9,859,734
+ADP reduction:         24,460
+Cases within 1.5x of reference: 81/100
+Cases above 1.5x of reference: 19/100
+```
+
+Cases newly moved within 1.5x:
+
+```text
+ex204, ex205, ex241, ex244, ex245, ex253, ex260, ex270, ex279, ex287, ex289
+```
+
+Representative accepted reductions:
+
+```text
+ex204: 23580 -> 22680
+ex205: 74822 -> 70584
+ex241: 11186 -> 10556
+ex244:  6480 ->  5978
+ex245: 19382 -> 15844
+ex253:  2907 ->  2451
+ex260:  1056 ->   913
+ex270:  3312 ->  2840
+ex279: 16592 -> 15300
+ex287: 13220 ->  6372
+ex289: 21907 -> 20190
+```
+
+Remaining above-1.5x cases are dominated by either very compact reference
+solutions (`ex286`, `ex252`) or large area-only bottlenecks (`ex299`, `ex297`,
+`ex225`, `ex223`, `ex224`, `ex295`).  The next structural direction should be
+multi-output shared-kernel extraction for cyclic/vector truth tables and a
+more aggressive area-only decomposition path that accepts larger delay.

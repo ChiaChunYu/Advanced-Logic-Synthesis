@@ -424,6 +424,35 @@ REPRODUCE_AREA_FIRST_TIMEOUT = 90
 REPRODUCE_AREA_FIRST_PASSES = 3
 REPRODUCE_CASE_FAIR_TIMEOUT = 60
 REPRODUCE_CASE_FAIR_STAGE_TIMEOUT = 10
+REPRODUCE_RATIO_PUSH_CASES = [
+    "ex204",
+    "ex205",
+    "ex217",
+    "ex219",
+    "ex240",
+    "ex241",
+    "ex244",
+    "ex245",
+    "ex246",
+    "ex247",
+    "ex248",
+    "ex252",
+    "ex253",
+    "ex260",
+    "ex270",
+    "ex279",
+    "ex287",
+    "ex289",
+]
+REPRODUCE_RATIO_PUSH_PARETO_CASES = ["ex205", "ex246", "ex279"]
+REPRODUCE_RATIO_PUSH_TIMEOUT = 180
+REPRODUCE_RATIO_PUSH_MICRO_TIMEOUT = 180
+REPRODUCE_RATIO_PUSH_GIA_TIMEOUT = 120
+REPRODUCE_RATIO_PUSH_PARETO_TIMEOUT = 520
+REPRODUCE_RATIO_PUSH_PARETO_SECONDS = 420
+REPRODUCE_RATIO_PUSH_TYPE_FLOWS = 12
+REPRODUCE_RATIO_PUSH_OBJECTIVE_FLOWS = 4
+REPRODUCE_RATIO_PUSH_MICRO_FLOWS = 12
 REPRODUCE_RECIPE = [
     (
         "1",
@@ -566,6 +595,18 @@ REPRODUCE_RECIPE = [
             f"max_passes={REPRODUCE_MICRO_CONVERGENCE_PASSES}, "
             f"micro_timeout={REPRODUCE_MICRO_CONVERGENCE_TIMEOUT}, "
             f"gia_timeout={REPRODUCE_GIA_CANONICAL_TIMEOUT}, stops early on convergence"
+        ),
+    ),
+    (
+        "17",
+        "targeted_1p5x_ratio_push",
+        "Run the deterministic near-reference-ratio rescue package on cases that remained above 1.5x in experiments.",
+        (
+            f"cases={','.join(REPRODUCE_RATIO_PUSH_CASES)}; "
+            f"area/type/objective timeout={REPRODUCE_RATIO_PUSH_TIMEOUT}; "
+            f"micro_timeout={REPRODUCE_RATIO_PUSH_MICRO_TIMEOUT}; "
+            f"pareto_cases={','.join(REPRODUCE_RATIO_PUSH_PARETO_CASES)}, "
+            f"pareto_seconds={REPRODUCE_RATIO_PUSH_PARETO_SECONDS}"
         ),
     ),
 ]
@@ -7373,8 +7414,8 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             True,
         )
 
-    # --- stage 16/16: final convergence — micro + GIA canonical (merged 24 + 25) ---
-    print("[reproduce] stage 16/16: deterministic micro-guided and GIA canonical fixed-point convergence")
+    # --- stage 16/17: final convergence — micro + GIA canonical (merged 24 + 25) ---
+    print("[reproduce] stage 16/17: deterministic micro-guided and GIA canonical fixed-point convergence")
     for pass_index in range(REPRODUCE_MICRO_CONVERGENCE_PASSES):
         pass_summaries: list[CaseSummary] = []
         print(f"[final-converge] pass {pass_index + 1}/{REPRODUCE_MICRO_CONVERGENCE_PASSES}")
@@ -7407,6 +7448,72 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         if best_total >= baseline_total:
             print("[final-converge] converged")
             break
+
+    # --- stage 17/17: targeted 1.5x-ratio push refinement ---
+    print("[reproduce] stage 17/17: targeted 1.5x-ratio push refinement")
+    for case in REPRODUCE_RATIO_PUSH_CASES:
+        print(f"[{case}] 1.5x-ratio push package")
+        if case in REPRODUCE_RATIO_PUSH_PARETO_CASES:
+            run_pareto_area_structural_case(
+                case,
+                args.abc,
+                args.benchmarks,
+                args.output,
+                args.logs,
+                REPRODUCE_RATIO_PUSH_PARETO_TIMEOUT,
+                root,
+                REPRODUCE_SEED,
+                REPRODUCE_RATIO_PUSH_PARETO_SECONDS,
+            )
+        run_area_first_refine_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_RATIO_PUSH_TIMEOUT,
+            root,
+        )
+        run_type_guided_refine_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_RATIO_PUSH_TIMEOUT,
+            root,
+            REPRODUCE_RATIO_PUSH_TYPE_FLOWS,
+        )
+        run_objective_guided_refine_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_RATIO_PUSH_TIMEOUT,
+            root,
+            REPRODUCE_RATIO_PUSH_OBJECTIVE_FLOWS,
+        )
+        run_micro_guided_refine_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_RATIO_PUSH_MICRO_TIMEOUT,
+            root,
+            REPRODUCE_RATIO_PUSH_MICRO_FLOWS,
+        )
+        run_gia_canonical_convergence_case(
+            case,
+            args.abc,
+            args.benchmarks,
+            args.output,
+            args.logs,
+            REPRODUCE_RATIO_PUSH_GIA_TIMEOUT,
+            root,
+            REPRODUCE_GIA_CANONICAL_MAX_PASSES,
+        )
 
     write_results_csv(args.logs / "reproduce_candidates.csv", step_results)
     final_results, final_summaries = verify_final_outputs(ALL_CASES, args.abc, args.benchmarks, args.output, root)
