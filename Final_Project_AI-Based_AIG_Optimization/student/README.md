@@ -191,6 +191,15 @@ After structural candidates settle:
 The pipeline runs **17 stages** in total.  Use `--show-reproduce-recipe` to
 print the full stage list with parameters.
 
+After the 17-stage pipeline, two additional stages run automatically:
+
+- **Stage 18** (`refine_close.py`): parallel ABC flow search
+  (`&resyn3rs`, `&sopb`, `resub -K N`, `dch+if`, `&compress2rs`, etc.)
+  applied to every case above the reference ADP.  Each case iterates
+  until no flow yields a strictly lower verified ADP.
+- **Stage 19** (`reproduce_top3.sh`): re-seeds ex272/ex276/ex280 from
+  the current output and re-verifies the top-3 improvements.
+
 Stage 5 (`mockturtle_structural`) now includes `xag_xor_heavy` and
 `roundtrip_xag` for all cases with large area, high ADP, or high delay (≥18
 levels).  These XAG algebraic depth-rewriting modes reduce delay by 1–3 levels
@@ -203,11 +212,21 @@ The current submitted outputs have been checked with `evaluate.py`:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 9859734
+Total ADP over equivalent cases: 9610121
 ```
 
-3 cases beat the reference result (ex276, ex280, ex272).  81 cases are within
-1.5x of the reference ADP after the latest targeted 1.5x-ratio push.
+7 cases beat the reference result (ex276, ex272, ex280, ex231, ex287, ex207,
+ex227).  81 cases are within 1.5x of the reference ADP.
+
+| Case  | My ADP  | Ref ADP | Ratio  |
+|-------|--------:|--------:|-------:|
+| ex276 |     592 |     632 | 0.9367 |
+| ex272 |  10,507 |  10,880 | 0.9657 |
+| ex287 |   5,586 |   5,782 | 0.9661 |
+| ex280 |   2,338 |   2,415 | 0.9681 |
+| ex231 |  13,740 |  14,066 | 0.9768 |
+| ex207 | 614,916 | 627,817 | 0.9795 |
+| ex227 | 708,377 | 721,639 | 0.9816 |
 
 Development history, per-stage experiments, and prior result comparisons are
 recorded separately in `student/OPTIMIZATION_LOG.md`.
@@ -223,6 +242,8 @@ student/boolean_fingerprint.py          truth-table structure analysis
 student/exact_function_recognition.py   exact template detection
 student/mockturtle_opt/                 mockturtle structural resynthesis tool
 student/area_first_experiment.py        standalone area-first experiment script
+student/refine_close.py                 post-hoc ABC flow refinement (stage 18)
+student/reproduce_top3.sh               top-3 seed verification (stage 19)
 ```
 
 `student/optimizer.py` is retained only as the provided baseline; it is not

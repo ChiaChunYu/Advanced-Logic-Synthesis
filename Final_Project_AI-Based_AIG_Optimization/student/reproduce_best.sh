@@ -37,6 +37,17 @@ python3 student/flow_optimizer.py \
   --output output \
   --logs student/logs
 
+# Stage 18: post-hoc ABC flow refinement for all cases above reference ADP
+echo "Stage 18: refine_close – ABC flow search on all cases above reference"
+python3 student/refine_close.py \
+  --case-workers 8 \
+  --workers 4 \
+  --max-ratio 99
+
+# Stage 19: re-verify and keep the top-3 seed improvements (ex272/ex276/ex280)
+echo "Stage 19: reproduce_top3 – re-seed from current output and verify top-3"
+bash student/reproduce_top3.sh
+
 python3 evaluate.py \
   --abc student/abc \
   --benchmarks benchmarks \

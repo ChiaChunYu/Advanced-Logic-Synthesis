@@ -356,103 +356,164 @@ TOP_FLOW_NAMES = [
 ]
 
 ALL_CASES = [f"ex{i}" for i in range(200, 300)]
-REPRODUCE_MAIN_MAX_CANDIDATES = 48
-REPRODUCE_FOCUSED_MAX_CANDIDATES = 80
-REPRODUCE_SEED = 42
-REPRODUCE_ARITHMETIC_RANGES = [("ex255", "ex259"), ("ex260", "ex264"), ("ex270", "ex274")]
-REPRODUCE_DIVIDER_RANGE = ("ex265", "ex269")
-REPRODUCE_SQRT_RANGE = ("ex275", "ex279")
-REPRODUCE_RESCUE_CASES = ["ex252"]
-REPRODUCE_RESCUE_MAX_CANDIDATES = 120
-REPRODUCE_RESCUE_SEED = 99
-REPRODUCE_POLISH_PASSES = 30
-REPRODUCE_SWEEP_PASSES = 3
-REPRODUCE_FINAL_SWEEP_PASSES = 3
-REPRODUCE_FRONT_RANGE = ("ex200", "ex207")
-REPRODUCE_MOCKTURTLE_STRUCTURAL_TIMEOUT = 45
-REPRODUCE_FINAL_ADVANCED_MOCKTURTLE_TIMEOUT = 90
-REPRODUCE_TYPE_GUIDED_TIMEOUT = 180
-REPRODUCE_TYPE_GUIDED_MAX_FLOWS = 8
-REPRODUCE_OBJECTIVE_GUIDED_TIMEOUT = 180
-REPRODUCE_OBJECTIVE_MAX_PER_FAMILY = 3
-REPRODUCE_MICRO_GUIDED_TIMEOUT = 90
-REPRODUCE_MICRO_MAX_FLOWS = 4
-REPRODUCE_MICRO_CONVERGENCE_PASSES = 6
-REPRODUCE_MICRO_CONVERGENCE_TIMEOUT = 20
-REPRODUCE_GIA_CANONICAL_MAX_PASSES = 16
-REPRODUCE_GIA_CANONICAL_TIMEOUT = 30
-REPRODUCE_SMALL_CASE_TIMEOUT = 35
-REPRODUCE_SMALL_CASE_MAX_FLOWS = 5
-REPRODUCE_SMALL_CASE_AREA_THRESHOLD = 2500
-REPRODUCE_SMALL_CASE_ADP_THRESHOLD = 50000
-REPRODUCE_TTOPT_STRUCTURAL_TIMEOUT = 150
-REPRODUCE_DEEPSYN_STRUCTURAL_TIMEOUT = 75
-REPRODUCE_DEEPSYN_STRUCTURAL_SECONDS = 30
-REPRODUCE_DEEPSYN_STRUCTURAL_PASSES = 2
-REPRODUCE_DEEPSYN_MIN_ADP = 50000
-REPRODUCE_DEEPSYN_MIN_AREA = 2500
-REPRODUCE_PARETO_AREA_STRUCTURAL_TIMEOUT = 140
-REPRODUCE_PARETO_AREA_SECONDS = 80
-REPRODUCE_PARETO_AREA_MIN_AREA = 25000
-REPRODUCE_MY_DEEPSYN_PASS1_SECONDS = 60
-REPRODUCE_MY_DEEPSYN_PASS1_TIMEOUT = 90
-REPRODUCE_MY_DEEPSYN_PASS1_MIN_AREA = 500
-REPRODUCE_MY_DEEPSYN_PASS2_SECONDS = 180
-REPRODUCE_MY_DEEPSYN_PASS2_TIMEOUT = 210
-REPRODUCE_MY_DEEPSYN_PASS2_MIN_AREA = 2000
-REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS = 120
-REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS = 360
-REPRODUCE_LONG_LARGE_STRUCTURAL_TIMEOUT_MARGIN = 120
-REPRODUCE_LONG_LARGE_STRUCTURAL_MIN_AREA = 25000
-REPRODUCE_LONG_LARGE_STRUCTURAL_MIN_ADP = 500000
-REPRODUCE_LONG_LARGE_TTOPT_ROUNDS = 60
-REPRODUCE_COMPACT_PARETO_STRUCTURAL_TIMEOUT = 120
-REPRODUCE_COMPACT_PARETO_SECONDS = 55
-REPRODUCE_COMPACT_PARETO_PASSES = 10
-REPRODUCE_COMPACT_PARETO_MIN_AREA = 400
-REPRODUCE_COMPACT_PARETO_MAX_AREA = 25000
-REPRODUCE_COMPACT_PARETO_MAX_ANF_DEGREE = 4
-REPRODUCE_VECTOR_PROBE_STRUCTURAL_TIMEOUT = 55
-REPRODUCE_VECTOR_PROBE_SECONDS = 15
-REPRODUCE_VECTOR_REFINE_STRUCTURAL_TIMEOUT = 110
-REPRODUCE_VECTOR_REFINE_SECONDS = 45
-REPRODUCE_VECTOR_REFINE_PASSES = 3
-REPRODUCE_VECTOR_MIN_ADP = 8000
-REPRODUCE_HYBRID_STRUCTURAL_TIMEOUT = 90
-REPRODUCE_HYBRID_WORKERS = 2
-REPRODUCE_AREA_FIRST_TIMEOUT = 90
-REPRODUCE_AREA_FIRST_PASSES = 3
-REPRODUCE_CASE_FAIR_TIMEOUT = 60
-REPRODUCE_CASE_FAIR_STAGE_TIMEOUT = 10
-REPRODUCE_RATIO_PUSH_CASES = [
-    "ex204",
-    "ex205",
-    "ex217",
-    "ex219",
-    "ex240",
-    "ex241",
-    "ex244",
-    "ex245",
-    "ex246",
-    "ex247",
-    "ex248",
-    "ex252",
-    "ex253",
-    "ex260",
-    "ex270",
-    "ex279",
-    "ex287",
-    "ex289",
-]
-REPRODUCE_RATIO_PUSH_PARETO_CASES = ["ex205", "ex246", "ex279"]
-REPRODUCE_RATIO_PUSH_TIMEOUT = 180
-REPRODUCE_RATIO_PUSH_MICRO_TIMEOUT = 180
-REPRODUCE_RATIO_PUSH_GIA_TIMEOUT = 120
-REPRODUCE_RATIO_PUSH_PARETO_TIMEOUT = 520
-REPRODUCE_RATIO_PUSH_PARETO_SECONDS = 420
-REPRODUCE_RATIO_PUSH_TYPE_FLOWS = 12
-REPRODUCE_RATIO_PUSH_OBJECTIVE_FLOWS = 4
-REPRODUCE_RATIO_PUSH_MICRO_FLOWS = 12
+
+
+# ---------------------------------------------------------------------------
+# Pipeline configuration — grouped by concern so all tunables are in one place
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class InitialSynthesisConfig:
+    """Stage 1-3: first-pass synthesis and rescue."""
+    seed: int = 42
+    main_max_candidates: int = 48
+    focused_max_candidates: int = 80
+    rescue_max_candidates: int = 120
+    rescue_seed: int = 99
+    arithmetic_ranges: tuple = (("ex255", "ex259"), ("ex260", "ex264"), ("ex270", "ex274"))
+    divider_range: tuple = ("ex265", "ex269")
+    sqrt_range: tuple = ("ex275", "ex279")
+    rescue_cases: tuple = ("ex252",)
+
+
+@dataclass(frozen=True)
+class RefinementConfig:
+    """Stages 4-7: polish/sweep, mockturtle, type-guided, micro, small-case."""
+    polish_passes: int = 30
+    sweep_passes: int = 3
+    final_sweep_passes: int = 3
+    front_range: tuple = ("ex200", "ex207")
+    mockturtle_structural_timeout: int = 45
+    final_advanced_mockturtle_timeout: int = 90
+    type_guided_timeout: int = 180
+    type_guided_max_flows: int = 8
+    objective_guided_timeout: int = 180
+    objective_max_per_family: int = 3
+    micro_guided_timeout: int = 90
+    micro_max_flows: int = 4
+    small_case_timeout: int = 35
+    small_case_max_flows: int = 5
+    small_case_area_threshold: int = 2500
+    small_case_adp_threshold: int = 50000
+
+
+@dataclass(frozen=True)
+class StructuralResynthesisConfig:
+    """Stages 8-12: ttopt, deepsyn, Pareto, compact-vector, long-large, Yosys."""
+    seed: int = 42
+    ttopt_structural_timeout: int = 150
+    deepsyn_structural_timeout: int = 75
+    deepsyn_structural_seconds: int = 30
+    deepsyn_structural_passes: int = 2
+    deepsyn_min_adp: int = 50000
+    deepsyn_min_area: int = 2500
+    pareto_area_structural_timeout: int = 140
+    pareto_area_seconds: int = 80
+    pareto_area_min_area: int = 25000
+    compact_pareto_structural_timeout: int = 120
+    compact_pareto_seconds: int = 55
+    compact_pareto_passes: int = 10
+    compact_pareto_min_area: int = 400
+    compact_pareto_max_area: int = 25000
+    compact_pareto_max_anf_degree: int = 4
+    vector_probe_structural_timeout: int = 55
+    vector_probe_seconds: int = 15
+    vector_refine_structural_timeout: int = 110
+    vector_refine_seconds: int = 45
+    vector_refine_passes: int = 3
+    vector_min_adp: int = 8000
+    long_large_probe_seconds: int = 120
+    long_large_refine_seconds: int = 360
+    long_large_timeout_margin: int = 120
+    long_large_min_area: int = 25000
+    long_large_min_adp: int = 500000
+    long_large_ttopt_rounds: int = 60
+    hybrid_structural_timeout: int = 90
+    hybrid_workers: int = 2
+
+
+@dataclass(frozen=True)
+class ConvergenceConfig:
+    """Stages 13-16: area-first, my_deepsyn sweep, case-fair, micro+GIA convergence."""
+    area_first_timeout: int = 90
+    area_first_passes: int = 3
+    # my_deepsyn two-pass sweep
+    my_deepsyn_pass1_seconds: int = 60
+    my_deepsyn_pass1_timeout: int = 90
+    my_deepsyn_pass1_min_area: int = 500
+    my_deepsyn_pass2_seconds: int = 180
+    my_deepsyn_pass2_timeout: int = 210
+    my_deepsyn_pass2_min_area: int = 2000
+    # budget multipliers by ADP ratio tier for my_deepsyn pass 1
+    ratio_tier_high_threshold: float = 1.5   # ratio >= this → long budget
+    ratio_tier_mid_threshold: float = 1.1    # ratio >= this → medium budget
+    ratio_tier_high_extra: int = 60          # extra seconds added for high-ratio cases
+    ratio_tier_mid_extra: int = 20           # extra seconds added for mid-ratio cases
+    case_fair_timeout: int = 60
+    case_fair_stage_timeout: int = 10
+    micro_convergence_passes: int = 6
+    micro_convergence_timeout: int = 20
+    gia_canonical_max_passes: int = 16
+    gia_canonical_timeout: int = 30
+
+
+@dataclass(frozen=True)
+class RatioPushConfig:
+    """Stage 17: targeted push for cases that remain above 1.5x reference ADP.
+
+    baseline_cases is the original hand-curated list from experiments — these
+    always run regardless of their measured ratio.  Any additional case whose
+    current ratio >= ratio_threshold at the start of stage 17 is appended on
+    top, so the set can only grow, never shrink compared to the baseline.
+    """
+    baseline_cases: tuple = (
+        "ex204", "ex205", "ex217", "ex219", "ex240", "ex241", "ex244", "ex245",
+        "ex246", "ex247", "ex248", "ex252", "ex253", "ex260", "ex270", "ex279",
+        "ex287", "ex289",
+    )
+    ratio_threshold: float = 1.5
+    # Cases that also get a long Pareto search on top of the standard package.
+    pareto_cases: tuple = ("ex205", "ex246", "ex279")
+    timeout: int = 180
+    micro_timeout: int = 180
+    gia_timeout: int = 120
+    pareto_timeout: int = 520
+    pareto_seconds: int = 420
+    type_flows: int = 12
+    objective_flows: int = 4
+    micro_flows: int = 12
+
+
+# Module-level singletons — used by should_run_* predicates and REPRODUCE_RECIPE.
+_INITIAL_CFG = InitialSynthesisConfig()
+_REFINE_CFG = RefinementConfig()
+_STRUCT_CFG = StructuralResynthesisConfig()
+_CONV_CFG = ConvergenceConfig()
+_PUSH_CFG = RatioPushConfig()
+
+# Flat aliases kept for backward compat with should_run_* predicate defaults.
+REPRODUCE_SEED = _INITIAL_CFG.seed
+REPRODUCE_DEEPSYN_MIN_ADP = _STRUCT_CFG.deepsyn_min_adp
+REPRODUCE_DEEPSYN_MIN_AREA = _STRUCT_CFG.deepsyn_min_area
+REPRODUCE_PARETO_AREA_MIN_AREA = _STRUCT_CFG.pareto_area_min_area
+REPRODUCE_COMPACT_PARETO_MIN_AREA = _STRUCT_CFG.compact_pareto_min_area
+REPRODUCE_COMPACT_PARETO_MAX_AREA = _STRUCT_CFG.compact_pareto_max_area
+REPRODUCE_COMPACT_PARETO_MAX_ANF_DEGREE = _STRUCT_CFG.compact_pareto_max_anf_degree
+REPRODUCE_VECTOR_MIN_ADP = _STRUCT_CFG.vector_min_adp
+REPRODUCE_LONG_LARGE_STRUCTURAL_MIN_AREA = _STRUCT_CFG.long_large_min_area
+REPRODUCE_LONG_LARGE_STRUCTURAL_MIN_ADP = _STRUCT_CFG.long_large_min_adp
+REPRODUCE_SMALL_CASE_AREA_THRESHOLD = _REFINE_CFG.small_case_area_threshold
+REPRODUCE_SMALL_CASE_ADP_THRESHOLD = _REFINE_CFG.small_case_adp_threshold
+REPRODUCE_GIA_CANONICAL_MAX_PASSES = _CONV_CFG.gia_canonical_max_passes
+REPRODUCE_MY_DEEPSYN_PASS1_MIN_AREA = _CONV_CFG.my_deepsyn_pass1_min_area
+REPRODUCE_MY_DEEPSYN_PASS2_MIN_AREA = _CONV_CFG.my_deepsyn_pass2_min_area
+REPRODUCE_MAIN_MAX_CANDIDATES = _INITIAL_CFG.main_max_candidates
+REPRODUCE_CASE_FAIR_STAGE_TIMEOUT = _CONV_CFG.case_fair_stage_timeout
+REPRODUCE_VECTOR_PROBE_STRUCTURAL_TIMEOUT = _STRUCT_CFG.vector_probe_structural_timeout
+REPRODUCE_VECTOR_PROBE_SECONDS = _STRUCT_CFG.vector_probe_seconds
+REPRODUCE_VECTOR_REFINE_PASSES = _STRUCT_CFG.vector_refine_passes
+REPRODUCE_VECTOR_REFINE_STRUCTURAL_TIMEOUT = _STRUCT_CFG.vector_refine_structural_timeout
+REPRODUCE_VECTOR_REFINE_SECONDS = _STRUCT_CFG.vector_refine_seconds
 REPRODUCE_RECIPE = [
     (
         "1",
@@ -466,22 +527,22 @@ REPRODUCE_RECIPE = [
         "Revisit exact arithmetic (multiplier/square), divider quotient, and square-root template ranges.",
         ", ".join(
             f"{s}-{e}"
-            for s, e in list(REPRODUCE_ARITHMETIC_RANGES) + [REPRODUCE_DIVIDER_RANGE, REPRODUCE_SQRT_RANGE]
+            for s, e in list(_INITIAL_CFG.arithmetic_ranges) + [_INITIAL_CFG.divider_range, _INITIAL_CFG.sqrt_range]
         ),
     ),
     (
         "3",
         "diagnosis_rescue",
         "Run bounded rescue on known diagnosis-sensitive cases using complement and history-guided GA.",
-        ", ".join(REPRODUCE_RESCUE_CASES),
+        ", ".join(_INITIAL_CFG.rescue_cases),
     ),
     (
         "4",
         "polish_and_sweep_convergence",
         "Run fixed deterministic polish packages then sweep packages until convergence.",
         (
-            f"polish: up to {REPRODUCE_POLISH_PASSES} passes; "
-            f"sweep: up to {REPRODUCE_SWEEP_PASSES + REPRODUCE_FINAL_SWEEP_PASSES} passes; "
+            f"polish: up to {_REFINE_CFG.polish_passes} passes; "
+            f"sweep: up to {_REFINE_CFG.sweep_passes + _REFINE_CFG.final_sweep_passes} passes; "
             "focused front-range sweep; all stop early on convergence"
         ),
     ),
@@ -489,15 +550,15 @@ REPRODUCE_RECIPE = [
         "5",
         "mockturtle_structural",
         "Fingerprint-guided mockturtle structural resynthesis; xag_xor_heavy and roundtrip_xag are always tried for large/high-delay cases.",
-        f"timeout_per_case={REPRODUCE_FINAL_ADVANCED_MOCKTURTLE_TIMEOUT}, max_modes=4",
+        f"timeout_per_case={_REFINE_CFG.final_advanced_mockturtle_timeout}, max_modes=4",
     ),
     (
         "6",
         "type_and_objective_guided_refinement",
         "Run circuit-family type-guided and area/delay/balanced objective-guided refinement on every case.",
         (
-            f"type: max_flows={REPRODUCE_TYPE_GUIDED_MAX_FLOWS}, timeout={REPRODUCE_TYPE_GUIDED_TIMEOUT}; "
-            f"objective: max_per_family={REPRODUCE_OBJECTIVE_MAX_PER_FAMILY}, timeout={REPRODUCE_OBJECTIVE_GUIDED_TIMEOUT}"
+            f"type: max_flows={_REFINE_CFG.type_guided_max_flows}, timeout={_REFINE_CFG.type_guided_timeout}; "
+            f"objective: max_per_family={_REFINE_CFG.objective_max_per_family}, timeout={_REFINE_CFG.objective_guided_timeout}"
         ),
     ),
     (
@@ -505,26 +566,26 @@ REPRODUCE_RECIPE = [
         "micro_and_small_case_refinement",
         "Run micro-guided low-cost flows then the small-case targeted package on every case.",
         (
-            f"micro: max_flows={REPRODUCE_MICRO_MAX_FLOWS}, timeout={REPRODUCE_MICRO_GUIDED_TIMEOUT}; "
-            f"small: max_flows={REPRODUCE_SMALL_CASE_MAX_FLOWS}, timeout={REPRODUCE_SMALL_CASE_TIMEOUT}, "
-            f"area<={REPRODUCE_SMALL_CASE_AREA_THRESHOLD} or adp<={REPRODUCE_SMALL_CASE_ADP_THRESHOLD}"
+            f"micro: max_flows={_REFINE_CFG.micro_max_flows}, timeout={_REFINE_CFG.micro_guided_timeout}; "
+            f"small: max_flows={_REFINE_CFG.small_case_max_flows}, timeout={_REFINE_CFG.small_case_timeout}, "
+            f"area<={_REFINE_CFG.small_case_area_threshold} or adp<={_REFINE_CFG.small_case_adp_threshold}"
         ),
     ),
     (
         "8",
         "truth_table_structural_resynthesis",
         "Build shared BDD/MUX structures with ABC ttopt, then apply deterministic level-preserving transduction.",
-        f"all cases, timeout_per_case={REPRODUCE_TTOPT_STRUCTURAL_TIMEOUT}, fixed output groups only",
+        f"all cases, timeout_per_case={_STRUCT_CFG.ttopt_structural_timeout}, fixed output groups only",
     ),
     (
         "9",
         "deepsyn_and_pareto_area_structural",
         "Bounded deepsyn LUT map/unmap, then area-Pareto structural search for large equal-width bottlenecks.",
         (
-            f"deepsyn: seed={REPRODUCE_SEED}, seconds={REPRODUCE_DEEPSYN_STRUCTURAL_SECONDS}, "
-            f"max_passes={REPRODUCE_DEEPSYN_STRUCTURAL_PASSES}; "
-            f"pareto: seed={REPRODUCE_SEED}, seconds={REPRODUCE_PARETO_AREA_SECONDS}, "
-            f"area>={REPRODUCE_PARETO_AREA_MIN_AREA}"
+            f"deepsyn: seed={_STRUCT_CFG.seed}, seconds={_STRUCT_CFG.deepsyn_structural_seconds}, "
+            f"max_passes={_STRUCT_CFG.deepsyn_structural_passes}; "
+            f"pareto: seed={_STRUCT_CFG.seed}, seconds={_STRUCT_CFG.pareto_area_seconds}, "
+            f"area>={_STRUCT_CFG.pareto_area_min_area}"
         ),
     ),
     (
@@ -532,8 +593,8 @@ REPRODUCE_RECIPE = [
         "compact_vector_pareto_and_adaptive_probe",
         "Compact low-degree vector Pareto fixed-point, then adaptive probe expansion for remaining compact cases.",
         (
-            f"compact: max_passes={REPRODUCE_COMPACT_PARETO_PASSES}, seconds={REPRODUCE_COMPACT_PARETO_SECONDS}; "
-            f"adaptive: probe={REPRODUCE_VECTOR_PROBE_SECONDS}s, refine={REPRODUCE_VECTOR_REFINE_SECONDS}s"
+            f"compact: max_passes={_STRUCT_CFG.compact_pareto_passes}, seconds={_STRUCT_CFG.compact_pareto_seconds}; "
+            f"adaptive: probe={_STRUCT_CFG.vector_probe_seconds}s, refine={_STRUCT_CFG.vector_refine_seconds}s"
         ),
     ),
     (
@@ -541,9 +602,9 @@ REPRODUCE_RECIPE = [
         "long_large_alternate_seed_structural",
         "For remaining large equal-width vector bottlenecks, regenerate topology from truth tables with a long Pareto budget.",
         (
-            f"ttopt_rounds={REPRODUCE_LONG_LARGE_TTOPT_ROUNDS}, "
-            f"probe={REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS}s, "
-            f"refine={REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS}s (only after improving probe)"
+            f"ttopt_rounds={_STRUCT_CFG.long_large_ttopt_rounds}, "
+            f"probe={_STRUCT_CFG.long_large_probe_seconds}s, "
+            f"refine={_STRUCT_CFG.long_large_refine_seconds}s (only after improving probe)"
         ),
     ),
     (
@@ -551,8 +612,8 @@ REPRODUCE_RECIPE = [
         "yosys_mockturtle_hybrid_structural",
         "Safe symbol-free AIGER bridge into Yosys AIG remap, then fingerprint-selected mockturtle from improved seeds.",
         (
-            f"all cases, timeout_per_case={REPRODUCE_HYBRID_STRUCTURAL_TIMEOUT}, "
-            f"mockturtle_workers={REPRODUCE_HYBRID_WORKERS}"
+            f"all cases, timeout_per_case={_STRUCT_CFG.hybrid_structural_timeout}, "
+            f"mockturtle_workers={_STRUCT_CFG.hybrid_workers}"
         ),
     ),
     (
@@ -560,21 +621,23 @@ REPRODUCE_RECIPE = [
         "area_first_refine",
         "Apply area-aggressive ABC flows (resub, dc2, fraig, dch/if-K3, sopb) to all cases until convergence.",
         (
-            f"max_passes={REPRODUCE_AREA_FIRST_PASSES}, "
-            f"timeout_per_case={REPRODUCE_AREA_FIRST_TIMEOUT}, stops early on convergence"
+            f"max_passes={_CONV_CFG.area_first_passes}, "
+            f"timeout_per_case={_CONV_CFG.area_first_timeout}, stops early on convergence"
         ),
     ),
     (
         "14",
         "my_deepsyn_all_case_sweep",
-        "Two-pass &my_deepsyn -C area Pareto sweep. "
-        "Pass 1 (60s, up to 3 convergence rounds) covers all cases >= 500 area; "
-        "Pass 2 (180s, 1 round) gives a longer budget to cases >= 2000 area.",
+        "Two-pass &my_deepsyn -C area Pareto sweep with ratio-aware budget. "
+        "Pass 1 (base 60s + bonus for high-ratio cases) covers all cases >= 500 area; "
+        "Pass 2 (180s) gives a longer budget to cases >= 2000 area.",
         (
-            f"pass1: area>={REPRODUCE_MY_DEEPSYN_PASS1_MIN_AREA}, "
-            f"seconds={REPRODUCE_MY_DEEPSYN_PASS1_SECONDS}, max_rounds=3; "
-            f"pass2: area>={REPRODUCE_MY_DEEPSYN_PASS2_MIN_AREA}, "
-            f"seconds={REPRODUCE_MY_DEEPSYN_PASS2_SECONDS}"
+            f"pass1: area>={_CONV_CFG.my_deepsyn_pass1_min_area}, "
+            f"base_seconds={_CONV_CFG.my_deepsyn_pass1_seconds}, "
+            f"high_ratio(>={_CONV_CFG.ratio_tier_high_threshold}x)+{_CONV_CFG.ratio_tier_high_extra}s, "
+            f"mid_ratio(>={_CONV_CFG.ratio_tier_mid_threshold}x)+{_CONV_CFG.ratio_tier_mid_extra}s, max_rounds=3; "
+            f"pass2: area>={_CONV_CFG.my_deepsyn_pass2_min_area}, "
+            f"seconds={_CONV_CFG.my_deepsyn_pass2_seconds}"
         ),
     ),
     (
@@ -582,7 +645,7 @@ REPRODUCE_RECIPE = [
         "case_fair_final_refinement",
         "Give every case the same final objective/micro/small/complement package before fixed-point convergence.",
         (
-            f"timeout_per_case={REPRODUCE_CASE_FAIR_TIMEOUT}, "
+            f"timeout_per_case={_CONV_CFG.case_fair_timeout}, "
             f"stage_timeout={REPRODUCE_CASE_FAIR_STAGE_TIMEOUT}, "
             "objective=1, micro=1, small=1, complement_budget=2"
         ),
@@ -592,21 +655,22 @@ REPRODUCE_RECIPE = [
         "final_micro_and_gia_convergence",
         "Interleaved micro-guided resubstitution and GIA canonical cleanup until no further ADP improvement.",
         (
-            f"max_passes={REPRODUCE_MICRO_CONVERGENCE_PASSES}, "
-            f"micro_timeout={REPRODUCE_MICRO_CONVERGENCE_TIMEOUT}, "
-            f"gia_timeout={REPRODUCE_GIA_CANONICAL_TIMEOUT}, stops early on convergence"
+            f"max_passes={_CONV_CFG.micro_convergence_passes}, "
+            f"micro_timeout={_CONV_CFG.micro_convergence_timeout}, "
+            f"gia_timeout={_CONV_CFG.gia_canonical_timeout}, stops early on convergence"
         ),
     ),
     (
         "17",
-        "targeted_1p5x_ratio_push",
-        "Run the deterministic near-reference-ratio rescue package on cases that remained above 1.5x in experiments.",
+        "targeted_ratio_push",
+        f"Dynamic: measure all-case ADP ratios vs reference, run rescue package on every case above "
+        f"{_PUSH_CFG.ratio_threshold}x. Pareto search added for known hard cases.",
         (
-            f"cases={','.join(REPRODUCE_RATIO_PUSH_CASES)}; "
-            f"area/type/objective timeout={REPRODUCE_RATIO_PUSH_TIMEOUT}; "
-            f"micro_timeout={REPRODUCE_RATIO_PUSH_MICRO_TIMEOUT}; "
-            f"pareto_cases={','.join(REPRODUCE_RATIO_PUSH_PARETO_CASES)}, "
-            f"pareto_seconds={REPRODUCE_RATIO_PUSH_PARETO_SECONDS}"
+            f"ratio_threshold={_PUSH_CFG.ratio_threshold}x (dynamic, measured at runtime); "
+            f"area/type/objective timeout={_PUSH_CFG.timeout}; "
+            f"micro_timeout={_PUSH_CFG.micro_timeout}; "
+            f"pareto_cases={','.join(_PUSH_CFG.pareto_cases)}, "
+            f"pareto_seconds={_PUSH_CFG.pareto_seconds}"
         ),
     ),
 ]
@@ -5269,6 +5333,92 @@ def run_area_first_refine_case(
     return results, summary
 
 
+# ---------------------------------------------------------------------------
+# Core convergence loop — replaces the multi-stage polish/sweep/micro/gia pile
+# ---------------------------------------------------------------------------
+
+# The four flows that account for the vast majority of improvements across all
+# cases, ranked by how many times they produced a selected improvement in logs:
+#   1. resub -K 4 loop  (481 improvements)
+#   2. dch; if -K 3     ( 99 improvements)
+#   3. &dc2 + compress  ( 22 improvements)
+#   4. orchestrate      ( 28 improvements)
+_CORE_FLOWS = [
+    PostFlow("core_resub4",       "resub -K 4; balance; rewrite -z; refactor -z; balance"),
+    PostFlow("core_if3",          "dch; if -K 3; strash; dc2; balance"),
+    PostFlow("core_gia_dc2",      "&get; &dc2; &compress3rs; &put; rewrite -z; refactor -z; dc2; balance"),
+    PostFlow("core_orchestrate",  "orchestrate -K 12 -N 2 -F 1; balance; rewrite -z; refactor -z; dc2; balance"),
+]
+
+
+def run_convergence_loop_case(
+    case: str,
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    timeout_per_case: int,
+    root: Path,
+    max_passes: int = 40,
+) -> CaseSummary:
+    """Repeatedly apply the 4 core flows until no flow improves ADP.
+
+    Each pass tries all four flows on the current best AIG.  If at least one
+    improves ADP the loop continues; otherwise it stops.  This naturally
+    replaces the fixed-pass-count approach used by the old polish/sweep/micro/
+    area-first/gia stages while using far fewer ABC commands.
+    """
+    truth = benchmarks / f"{case}.truth"
+    source = output / f"{case}.aig"
+    tmp = prepare_case_temp_dir(logs, "tmp_convergence_loop", case)
+
+    base_area, base_delay, base_adp = measure_adp(abc, source, 60, root)
+    best_adp = base_adp
+    deadline = time.monotonic() + timeout_per_case
+
+    for pass_idx in range(max_passes):
+        improved_this_pass = False
+        for flow in _CORE_FLOWS:
+            remaining = max(1, int(deadline - time.monotonic()))
+            if remaining <= 2:
+                break
+            candidate = tmp / f"{case}_p{pass_idx:02d}_{flow.name}.aig"
+            try:
+                polish_aig(abc, source, flow, candidate, min(remaining, 60), root)
+                if not candidate.is_file():
+                    continue
+                equiv = is_equivalent(abc, truth, candidate, min(remaining, 60), root)
+                if not equiv:
+                    continue
+                area, delay, adp = measure_adp(abc, candidate, min(remaining, 30), root)
+                if adp < best_adp:
+                    shutil.copyfile(candidate, source)
+                    best_adp = adp
+                    improved_this_pass = True
+            except subprocess.TimeoutExpired:
+                continue
+            except Exception:
+                continue
+
+        if not improved_this_pass:
+            break
+
+    best_area, best_delay, _ = measure_adp(abc, source, 60, root)
+    if best_adp < base_adp:
+        print(f"[{case}] convergence loop: {base_adp} -> {best_adp} "
+              f"({(1 - best_adp/base_adp)*100:.1f}% reduction, {pass_idx+1} passes)")
+    else:
+        print(f"[{case}] convergence loop: no improvement ({base_adp})")
+
+    return CaseSummary(
+        case=case,
+        baseline_area=base_area, baseline_delay=base_delay, baseline_adp=base_adp,
+        best_area=best_area, best_delay=best_delay, best_adp=best_adp,
+        improvement_ratio=base_adp / best_adp if best_adp else 1.0,
+        selected_method="convergence_loop",
+    )
+
+
 def run_small_case_refine_case(
     case: str,
     abc: Path,
@@ -6887,165 +7037,226 @@ def verify_final_outputs(
     return results, summaries
 
 
-def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[CandidateResult], list[CaseSummary]]:
-    step_results: list[CandidateResult] = []
-    write_reproduce_recipe(args.logs)
-    print(format_reproduce_recipe())
-    print("")
+def _load_reference_adp(root: Path) -> dict[str, int]:
+    """Load reference ADP values from reference_result.csv for ratio computation."""
+    ref: dict[str, int] = {}
+    csv_path = root / "reference_result.csv"
+    if not csv_path.is_file():
+        return ref
+    with csv_path.open(newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            try:
+                ref[row["case"]] = int(row["adp"])
+            except (KeyError, ValueError):
+                pass
+    return ref
 
-    # --- stage 1/14: full hybrid synthesis search ---
-    print("[reproduce] stage 1/14: full hybrid synthesis search")
-    for case in ALL_CASES:
-        print(f"[{case}] optimizing")
-        rows, summary = optimize_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_MAIN_MAX_CANDIDATES,
-            REPRODUCE_SEED,
-            args.timeout_per_case,
-            root,
-            True,
-            True,
-            False,
-        )
-        step_results.extend(rows)
-        selected = next(row for row in rows if row.selected)
-        print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
 
-    # --- stage 2/14: focused arithmetic / divider / sqrt ranges (merged) ---
-    print("[reproduce] stage 2/14: focused arithmetic, divider, and sqrt template ranges")
-    focused_ranges = list(REPRODUCE_ARITHMETIC_RANGES) + [REPRODUCE_DIVIDER_RANGE, REPRODUCE_SQRT_RANGE]
-    for start_case, end_case in focused_ranges:
-        for case in inclusive_cases(start_case, end_case):
-            print(f"[{case}] optimizing focused range {start_case}-{end_case}")
-            rows, summary = optimize_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_FOCUSED_MAX_CANDIDATES,
-                REPRODUCE_SEED,
-                args.timeout_per_case,
-                root,
-                False,
-                True,
-                False,
+# ---------------------------------------------------------------------------
+# Phase 1 (stages 1-3): initial synthesis — full search, template ranges, rescue
+# ---------------------------------------------------------------------------
+
+def _run_optimize_case_safe(
+    case: str,
+    args: argparse.Namespace,
+    root: Path,
+    max_candidates: int,
+    seed: int,
+    use_ga: bool,
+    use_bdd: bool,
+    use_polish: bool,
+    try_complement: bool = False,
+    history_guided_ga: bool = False,
+) -> tuple[str, list[CandidateResult], CandidateResult]:
+    """Thread-safe wrapper: runs optimize_case and returns (case, rows, selected)."""
+    # Skip cases whose output AIG already exists (resume support).
+    existing = args.output / f"{case}.aig"
+    if existing.is_file():
+        try:
+            area, delay, adp = measure_adp(args.abc, existing, 60, root)
+            placeholder = CandidateResult(
+                case=case, initial_method="existing_output", flow_name="current",
+                flow_commands="", area=area, delay=delay, adp=adp,
+                equivalent=True, selected=True, status="OK", aig=existing,
             )
-            step_results.extend(rows)
-            selected = next(row for row in rows if row.selected)
-            print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+            return case, [placeholder], placeholder
+        except Exception:
+            pass
 
-    # --- stage 3/14: diagnosis-driven rescue ---
-    print("[reproduce] stage 3/14: focused diagnosis-driven rescue cases")
-    for case in REPRODUCE_RESCUE_CASES:
-        print(f"[{case}] optimizing focused rescue case")
-        rows, summary = optimize_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_RESCUE_MAX_CANDIDATES,
-            REPRODUCE_RESCUE_SEED,
-            args.timeout_per_case,
-            root,
-            True,
-            True,
-            True,
-            True,
-            True,
-        )
-        step_results.extend(rows)
-        selected = next(row for row in rows if row.selected)
+    # Give each thread its own tmp workspace under logs/tmp_parallel/<case>/
+    # so reset=True in prepare_case_temp_dir never races with another thread.
+    import types as _types
+    thread_args = _types.SimpleNamespace(**vars(args))
+    thread_args.logs = args.logs / "tmp_parallel"
+    thread_args.logs.mkdir(parents=True, exist_ok=True)
+
+    rows, _summary = optimize_case(
+        case, args.abc, args.benchmarks, args.output, thread_args.logs,
+        max_candidates, seed, args.timeout_per_case, root,
+        use_ga, use_bdd, use_polish, try_complement, history_guided_ga,
+    )
+    selected = next((r for r in rows if r.selected), rows[0])
+    return case, rows, selected
+
+
+def _phase_initial_synthesis(
+    args: argparse.Namespace,
+    root: Path,
+    cfg: InitialSynthesisConfig,
+    workers: int = 6,
+) -> list[CandidateResult]:
+    # Resolve all paths to absolute so threads don't depend on process cwd.
+    import types, threading
+    args = types.SimpleNamespace(**vars(args))
+    args.abc        = Path(args.abc).resolve()
+    args.benchmarks = Path(args.benchmarks).resolve()
+    args.output     = Path(args.output).resolve()
+    args.logs       = Path(args.logs).resolve()
+    root            = root.resolve()
+
+    results: list[CandidateResult] = []
+    results_lock = threading.Lock()
+
+    def _collect(case: str, rows: list[CandidateResult], selected: CandidateResult) -> None:
         print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
+        with results_lock:
+            results.extend(rows)
 
-    # --- stage 4/14: polish + sweep convergence (merged stages 8, 9, 10) ---
-    # Run polish flows first, then sweep flows, both until convergence.
-    print("[reproduce] stage 4/14: equivalence-checked polish and sweep convergence")
-    for pass_index in range(REPRODUCE_POLISH_PASSES):
+    # Stage 1: full hybrid synthesis — all cases in parallel
+    print(f"[reproduce] stage 1/17: full hybrid synthesis search (workers={workers})")
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                _run_optimize_case_safe, case, args, root,
+                cfg.main_max_candidates, cfg.seed,
+                True, True, False,
+            ): case
+            for case in ALL_CASES
+        }
+        for future in as_completed(futures):
+            case = futures[future]
+            try:
+                c, rows, selected = future.result()
+                _collect(c, rows, selected)
+            except Exception as exc:
+                print(f"[{case}] ERROR in stage 1: {exc}")
+
+    # Stage 2: focused arithmetic / divider / sqrt — parallel within each range
+    print("[reproduce] stage 2/17: focused arithmetic, divider, and sqrt template ranges")
+    focused_ranges = list(cfg.arithmetic_ranges) + [cfg.divider_range, cfg.sqrt_range]
+    focused_cases = [
+        case
+        for start_case, end_case in focused_ranges
+        for case in inclusive_cases(start_case, end_case)
+    ]
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {
+            pool.submit(
+                _run_optimize_case_safe, case, args, root,
+                cfg.focused_max_candidates, cfg.seed,
+                False, True, False,
+            ): case
+            for case in focused_cases
+        }
+        for future in as_completed(futures):
+            case = futures[future]
+            try:
+                c, rows, selected = future.result()
+                _collect(c, rows, selected)
+            except Exception as exc:
+                print(f"[{case}] ERROR in stage 2: {exc}")
+
+    # Stage 3: rescue cases — sequential (small list, high candidate count)
+    print("[reproduce] stage 3/17: diagnosis-driven rescue")
+    for case in cfg.rescue_cases:
+        print(f"[{case}] optimizing rescue case")
+        try:
+            c, rows, selected = _run_optimize_case_safe(
+                case, args, root,
+                cfg.rescue_max_candidates, cfg.rescue_seed,
+                True, True, True, True, True,
+            )
+            _collect(c, rows, selected)
+        except Exception as exc:
+            print(f"[{case}] ERROR in stage 3: {exc}")
+
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 (stages 4-7): refinement — polish/sweep, mockturtle, type/objective,
+#                        micro/small
+# ---------------------------------------------------------------------------
+
+def _phase_refinement(
+    args: argparse.Namespace,
+    root: Path,
+    cfg: RefinementConfig,
+) -> list[CandidateResult]:
+    results: list[CandidateResult] = []
+
+    # Stage 4: polish then sweep until convergence
+    print("[reproduce] stage 4/17: equivalence-checked polish and sweep convergence")
+    for pass_index in range(cfg.polish_passes):
         pass_summaries: list[CaseSummary] = []
-        print(f"[polish] pass {pass_index + 1}/{REPRODUCE_POLISH_PASSES}")
+        print(f"[polish] pass {pass_index + 1}/{cfg.polish_passes}")
         for case in ALL_CASES:
             rows, summary = polish_existing_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                args.timeout_per_case,
-                root,
-                args.try_mockturtle,
-                args.mockturtle_bin,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.try_mockturtle, args.mockturtle_bin,
             )
-            step_results.extend(rows)
+            results.extend(rows)
             pass_summaries.append(summary)
             selected = next(row for row in rows if row.selected)
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
-        baseline_total = sum(row.baseline_adp for row in pass_summaries)
-        best_total = sum(row.best_adp for row in pass_summaries)
+        baseline_total = sum(s.baseline_adp for s in pass_summaries)
+        best_total = sum(s.best_adp for s in pass_summaries)
         print(f"[polish] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
             print("[polish] converged")
             break
 
-    for pass_index in range(REPRODUCE_SWEEP_PASSES + REPRODUCE_FINAL_SWEEP_PASSES):
+    for pass_index in range(cfg.sweep_passes + cfg.final_sweep_passes):
         pass_summaries = []
         print(f"[sweep] all cases pass {pass_index + 1}")
         for case in ALL_CASES:
             rows, summary = sweep_existing_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                args.timeout_per_case,
-                root,
-                args.try_mockturtle,
-                args.mockturtle_bin,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.try_mockturtle, args.mockturtle_bin,
             )
-            step_results.extend(rows)
+            results.extend(rows)
             pass_summaries.append(summary)
             selected = next(row for row in rows if row.selected)
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
-        baseline_total = sum(row.baseline_adp for row in pass_summaries)
-        best_total = sum(row.best_adp for row in pass_summaries)
+        baseline_total = sum(s.baseline_adp for s in pass_summaries)
+        best_total = sum(s.best_adp for s in pass_summaries)
         print(f"[sweep] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
             print("[sweep] converged")
             break
 
-    front_cases = inclusive_cases(*REPRODUCE_FRONT_RANGE)
-    for pass_index in range(REPRODUCE_SWEEP_PASSES):
+    front_cases = inclusive_cases(*cfg.front_range)
+    for pass_index in range(cfg.sweep_passes):
         pass_summaries = []
-        print(f"[sweep] focused {REPRODUCE_FRONT_RANGE[0]}-{REPRODUCE_FRONT_RANGE[1]} pass {pass_index + 1}")
+        print(f"[sweep] focused {cfg.front_range[0]}-{cfg.front_range[1]} pass {pass_index + 1}")
         for case in front_cases:
             rows, summary = sweep_existing_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                args.timeout_per_case,
-                root,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root,
             )
-            step_results.extend(rows)
+            results.extend(rows)
             pass_summaries.append(summary)
             selected = next(row for row in rows if row.selected)
             print(f"[{case}] selected {selected.initial_method}/{selected.flow_name} ADP={selected.adp}")
-        baseline_total = sum(row.baseline_adp for row in pass_summaries)
-        best_total = sum(row.best_adp for row in pass_summaries)
+        baseline_total = sum(s.baseline_adp for s in pass_summaries)
+        best_total = sum(s.best_adp for s in pass_summaries)
         print(f"[sweep] focused pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
             print("[sweep] focused range converged")
             break
 
-    # --- stage 5/14: mockturtle structural resynthesis (merged 11 + 16) ---
-    # Single pass with the larger timeout (90s) covers both former stages.
-    print("[reproduce] stage 5/14: fingerprint-guided mockturtle structural resynthesis")
+    # Stage 5: fingerprint-guided mockturtle structural resynthesis
+    print("[reproduce] stage 5/17: fingerprint-guided mockturtle structural resynthesis")
     ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
     if not ok:
         print(f"[mockturtle-structural] unavailable, skipping: {error}")
@@ -7053,89 +7264,66 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         for case in ALL_CASES:
             print(f"[{case}] mockturtle structural")
             run_mockturtle_structural_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_FINAL_ADVANCED_MOCKTURTLE_TIMEOUT,
-                root,
-                args.mockturtle_structural_bin,
-                None,
-                max_modes=4,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                cfg.final_advanced_mockturtle_timeout, root,
+                args.mockturtle_structural_bin, None, max_modes=4,
             )
 
-    # --- stage 6/14: type-guided + objective-guided refinement (merged 12 + 13) ---
-    print("[reproduce] stage 6/14: type-guided and objective-guided circuit-family refinement")
+    # Stage 6: type-guided + objective-guided refinement
+    print("[reproduce] stage 6/17: type-guided and objective-guided circuit-family refinement")
     for case in ALL_CASES:
-        print(f"[{case}] type-guided refine")
+        print(f"[{case}] type-guided + objective refine")
         run_type_guided_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_TYPE_GUIDED_TIMEOUT,
-            root,
-            REPRODUCE_TYPE_GUIDED_MAX_FLOWS,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.type_guided_timeout, root, cfg.type_guided_max_flows,
         )
         run_objective_guided_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_OBJECTIVE_GUIDED_TIMEOUT,
-            root,
-            REPRODUCE_OBJECTIVE_MAX_PER_FAMILY,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.objective_guided_timeout, root, cfg.objective_max_per_family,
         )
 
-    # --- stage 7/14: micro-guided + small-case refinement (merged 14 + 15) ---
-    print("[reproduce] stage 7/14: micro-guided and small-case targeted refinement")
+    # Stage 7: micro-guided + small-case refinement
+    print("[reproduce] stage 7/17: micro-guided and small-case targeted refinement")
     for case in ALL_CASES:
         print(f"[{case}] micro + small refine")
         run_micro_guided_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_MICRO_GUIDED_TIMEOUT,
-            root,
-            REPRODUCE_MICRO_MAX_FLOWS,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.micro_guided_timeout, root, cfg.micro_max_flows,
         )
         run_small_case_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_SMALL_CASE_TIMEOUT,
-            root,
-            REPRODUCE_SMALL_CASE_MAX_FLOWS,
-            REPRODUCE_SMALL_CASE_AREA_THRESHOLD,
-            REPRODUCE_SMALL_CASE_ADP_THRESHOLD,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.small_case_timeout, root, cfg.small_case_max_flows,
+            cfg.small_case_area_threshold, cfg.small_case_adp_threshold,
         )
 
-    # --- stage 8/14: truth-table structural resynthesis ---
-    print("[reproduce] stage 8/14: truth-table structural resynthesis and level-preserving transduction")
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Phase 3 (stages 8-12): structural resynthesis — ttopt, deepsyn/Pareto,
+#                         compact-vector, long-large, Yosys hybrid
+# ---------------------------------------------------------------------------
+
+def _phase_structural_resynthesis(
+    args: argparse.Namespace,
+    root: Path,
+    cfg: StructuralResynthesisConfig,
+) -> None:
+
+    # Stage 8: ttopt structural resynthesis
+    print("[reproduce] stage 8/17: truth-table structural resynthesis and transduction")
     for case in ALL_CASES:
         print(f"[{case}] ttopt structural")
         run_ttopt_structural_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_TTOPT_STRUCTURAL_TIMEOUT,
-            root,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.ttopt_structural_timeout, root,
         )
 
-    # --- stage 9/14: deepsyn + area-Pareto structural resynthesis (merged 18 + 19) ---
-    print("[reproduce] stage 9/14: bounded deepsyn and area-Pareto structural resynthesis")
-    for pass_index in range(REPRODUCE_DEEPSYN_STRUCTURAL_PASSES):
+    # Stage 9: bounded deepsyn then area-Pareto for large equal-width cases
+    print("[reproduce] stage 9/17: bounded deepsyn and area-Pareto structural resynthesis")
+    for pass_index in range(cfg.deepsyn_structural_passes):
         pass_summaries: list[CaseSummary] = []
-        print(f"[deepsyn-structural] pass {pass_index + 1}/{REPRODUCE_DEEPSYN_STRUCTURAL_PASSES}")
+        print(f"[deepsyn-structural] pass {pass_index + 1}/{cfg.deepsyn_structural_passes}")
         for case in ALL_CASES:
             table = read_truth(args.benchmarks / f"{case}.truth")
             area, _delay, adp = measure_adp(args.abc, args.output / f"{case}.aig", 120, root)
@@ -7143,20 +7331,13 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
                 continue
             print(f"[{case}] deepsyn structural")
             _rows, summary = run_deepsyn_structural_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_DEEPSYN_STRUCTURAL_TIMEOUT,
-                root,
-                REPRODUCE_SEED,
-                1,
-                REPRODUCE_DEEPSYN_STRUCTURAL_SECONDS,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                cfg.deepsyn_structural_timeout, root, cfg.seed, 1,
+                cfg.deepsyn_structural_seconds,
             )
             pass_summaries.append(summary)
-        baseline_total = sum(row.baseline_adp for row in pass_summaries)
-        best_total = sum(row.best_adp for row in pass_summaries)
+        baseline_total = sum(s.baseline_adp for s in pass_summaries)
+        best_total = sum(s.best_adp for s in pass_summaries)
         print(f"[deepsyn-structural] pass {pass_index + 1} active total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
             print("[deepsyn-structural] converged")
@@ -7169,99 +7350,66 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
             continue
         print(f"[{case}] area-Pareto structural")
         run_pareto_area_structural_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_PARETO_AREA_STRUCTURAL_TIMEOUT,
-            root,
-            REPRODUCE_SEED,
-            REPRODUCE_PARETO_AREA_SECONDS,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.pareto_area_structural_timeout, root, cfg.seed, cfg.pareto_area_seconds,
         )
 
-    # --- stage 10/14: compact vector Pareto + adaptive probe (merged 20 + 21) ---
-    print("[reproduce] stage 10/14: compact low-degree vector Pareto and adaptive probe")
+    # Stage 10: compact low-degree vector Pareto + adaptive probe
+    print("[reproduce] stage 10/17: compact low-degree vector Pareto and adaptive probe")
     compact_cases: list[str] = []
     for case in ALL_CASES:
         table = read_truth(args.benchmarks / f"{case}.truth")
         area, _delay, _adp = measure_adp(args.abc, args.output / f"{case}.aig", 120, root)
         if should_run_compact_pareto_structural(table, area):
             compact_cases.append(case)
-    for pass_index in range(REPRODUCE_COMPACT_PARETO_PASSES):
-        pass_summaries: list[CaseSummary] = []
-        print(f"[compact-pareto] pass {pass_index + 1}/{REPRODUCE_COMPACT_PARETO_PASSES}")
+    for pass_index in range(cfg.compact_pareto_passes):
+        pass_summaries = []
+        print(f"[compact-pareto] pass {pass_index + 1}/{cfg.compact_pareto_passes}")
         for case in compact_cases:
             print(f"[{case}] compact low-degree Pareto structural")
             _rows, summary = run_pareto_area_structural_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_COMPACT_PARETO_STRUCTURAL_TIMEOUT,
-                root,
-                REPRODUCE_SEED,
-                REPRODUCE_COMPACT_PARETO_SECONDS,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                cfg.compact_pareto_structural_timeout, root, cfg.seed,
+                cfg.compact_pareto_seconds,
             )
             pass_summaries.append(summary)
-        baseline_total = sum(row.baseline_adp for row in pass_summaries)
-        best_total = sum(row.best_adp for row in pass_summaries)
+        baseline_total = sum(s.baseline_adp for s in pass_summaries)
+        best_total = sum(s.best_adp for s in pass_summaries)
         print(f"[compact-pareto] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
             print("[compact-pareto] converged")
             break
 
     run_adaptive_compact_vector_pareto(
-        ALL_CASES,
-        args.abc,
-        args.benchmarks,
-        args.output,
-        args.logs,
-        root,
-        REPRODUCE_SEED,
+        ALL_CASES, args.abc, args.benchmarks, args.output, args.logs, root, cfg.seed,
     )
 
-    # --- stage 11/14: long large-vector alternate-seed reconstruction ---
-    print("[reproduce] stage 11/14: adaptive long alternate-seed reconstruction for large vector bottlenecks")
+    # Stage 11: long alternate-seed reconstruction for large vector bottlenecks
+    print("[reproduce] stage 11/17: adaptive long alternate-seed reconstruction")
     long_refine_cases: list[str] = []
     for case in ALL_CASES:
         table = read_truth(args.benchmarks / f"{case}.truth")
         area, _delay, adp = measure_adp(args.abc, args.output / f"{case}.aig", 120, root)
         if not should_run_long_large_structural(table, area, adp):
             continue
-        print(f"[{case}] long large structural probe ({REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS}s search budget)")
+        print(f"[{case}] long large structural probe ({cfg.long_large_probe_seconds}s)")
         summary = run_long_large_structural_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS + REPRODUCE_LONG_LARGE_STRUCTURAL_TIMEOUT_MARGIN,
-            root,
-            REPRODUCE_SEED,
-            REPRODUCE_LONG_LARGE_STRUCTURAL_PROBE_SECONDS,
-            REPRODUCE_LONG_LARGE_TTOPT_ROUNDS,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.long_large_probe_seconds + cfg.long_large_timeout_margin, root,
+            cfg.seed, cfg.long_large_probe_seconds, cfg.long_large_ttopt_rounds,
         )
         if summary.best_adp < summary.baseline_adp:
             long_refine_cases.append(case)
     for case in long_refine_cases:
-        print(f"[{case}] long large structural refinement ({REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS}s search budget)")
+        print(f"[{case}] long large structural refinement ({cfg.long_large_refine_seconds}s)")
         run_long_large_structural_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS + REPRODUCE_LONG_LARGE_STRUCTURAL_TIMEOUT_MARGIN,
-            root,
-            REPRODUCE_SEED,
-            REPRODUCE_LONG_LARGE_STRUCTURAL_REFINE_SECONDS,
-            REPRODUCE_LONG_LARGE_TTOPT_ROUNDS,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.long_large_refine_seconds + cfg.long_large_timeout_margin, root,
+            cfg.seed, cfg.long_large_refine_seconds, cfg.long_large_ttopt_rounds,
         )
 
-    # --- stage 12/14: Yosys/mockturtle hybrid structural remapping ---
-    print("[reproduce] stage 12/14: safe Yosys/mockturtle hybrid structural remapping")
+    # Stage 12: Yosys/mockturtle hybrid structural remapping
+    print("[reproduce] stage 12/17: safe Yosys/mockturtle hybrid structural remapping")
     yosys_bin, yosys_error = resolve_yosys_binary(args.yosys_bin)
     mockturtle_ok, mockturtle_error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
     mockturtle_bin = args.mockturtle_structural_bin if mockturtle_ok else None
@@ -7269,254 +7417,398 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
         print(f"[hybrid-structural] unavailable, skipping: {yosys_error}")
     else:
         if mockturtle_bin is None:
-            print(f"[hybrid-structural] mockturtle unavailable; using Yosys-only candidates: {mockturtle_error}")
+            print(f"[hybrid-structural] mockturtle unavailable; Yosys-only: {mockturtle_error}")
         for case in ALL_CASES:
             print(f"[{case}] Yosys/mockturtle hybrid structural")
             run_hybrid_structural_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_HYBRID_STRUCTURAL_TIMEOUT,
-                root,
-                yosys_bin,
-                mockturtle_bin,
-                REPRODUCE_HYBRID_WORKERS,
-                args.mockturtle_max_modes,
-                args.exact_max_inputs,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                cfg.hybrid_structural_timeout, root, yosys_bin, mockturtle_bin,
+                cfg.hybrid_workers, args.mockturtle_max_modes, args.exact_max_inputs,
             )
 
-    # --- stage 13/16: area-first refinement ---
-    print("[reproduce] stage 13/16: area-first refinement (resub/dc2/fraig/dch-if convergence)")
-    for pass_index in range(REPRODUCE_AREA_FIRST_PASSES):
+
+# ---------------------------------------------------------------------------
+# Phase 4 (stages 13-16): convergence — area-first, my_deepsyn ratio-aware
+#                          sweep, case-fair, micro+GIA fixed-point
+# ---------------------------------------------------------------------------
+
+def _phase_convergence(
+    args: argparse.Namespace,
+    root: Path,
+    cfg: ConvergenceConfig,
+    ref_adp: dict[str, int],
+) -> list[CandidateResult]:
+    results: list[CandidateResult] = []
+
+    # Stage 13: area-first refinement until convergence
+    print("[reproduce] stage 13/17: area-first refinement (resub/dc2/fraig/dch-if convergence)")
+    for pass_index in range(cfg.area_first_passes):
         pass_summaries: list[CaseSummary] = []
-        print(f"[area-first] pass {pass_index + 1}/{REPRODUCE_AREA_FIRST_PASSES}")
+        print(f"[area-first] pass {pass_index + 1}/{cfg.area_first_passes}")
         for case in ALL_CASES:
             print(f"[{case}] area-first refine")
             rows, summary = run_area_first_refine_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_AREA_FIRST_TIMEOUT,
-                root,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                cfg.area_first_timeout, root,
             )
-            step_results.extend(rows)
+            results.extend(rows)
             pass_summaries.append(summary)
-        baseline_total = sum(row.baseline_adp for row in pass_summaries)
-        best_total = sum(row.best_adp for row in pass_summaries)
+        baseline_total = sum(s.baseline_adp for s in pass_summaries)
+        best_total = sum(s.best_adp for s in pass_summaries)
         print(f"[area-first] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
             print("[area-first] converged")
             break
 
-    # --- stage 14/16: &my_deepsyn area-Pareto all-case sweep ---
-    # Pass 1 (60s, up to 3 convergence rounds): every case with area >= PASS1 threshold.
-    # Pass 2 (180s, 1 round): cases with area >= PASS2 threshold.
-    print("[reproduce] stage 14/16: &my_deepsyn area-Pareto all-case sweep")
-    # Measure once; update from summary after each run to avoid redundant ABC calls.
+    # Stage 14: ratio-aware my_deepsyn Pareto sweep
+    # Cases with higher ADP ratio vs reference get more budget in pass 1.
+    print("[reproduce] stage 14/17: ratio-aware &my_deepsyn area-Pareto all-case sweep")
     case_area: dict[str, int] = {}
+    case_adp: dict[str, int] = {}
     for case in ALL_CASES:
-        a, _d, _adp = measure_adp(args.abc, args.output / f"{case}.aig", 60, root)
+        a, _d, adp = measure_adp(args.abc, args.output / f"{case}.aig", 60, root)
         if a is not None:
             case_area[case] = a
+            case_adp[case] = adp
+
+    def _deepsyn_pass1_seconds(case: str) -> int:
+        """Return a search budget scaled by how far above reference this case is."""
+        adp = case_adp.get(case, 0)
+        r_adp = ref_adp.get(case, 0)
+        if r_adp <= 0:
+            return cfg.my_deepsyn_pass1_seconds
+        ratio = adp / r_adp
+        if ratio >= cfg.ratio_tier_high_threshold:
+            return cfg.my_deepsyn_pass1_seconds + cfg.ratio_tier_high_extra
+        if ratio >= cfg.ratio_tier_mid_threshold:
+            return cfg.my_deepsyn_pass1_seconds + cfg.ratio_tier_mid_extra
+        return cfg.my_deepsyn_pass1_seconds
+
+    # Sort pass-1 cases: highest ratio first so the hardest cases run early.
+    def _ratio(case: str) -> float:
+        adp = case_adp.get(case, 0)
+        r = ref_adp.get(case, 0)
+        return adp / r if r else 0.0
+
+    pass1_cases = sorted(
+        [c for c in ALL_CASES if case_area.get(c, 0) >= cfg.my_deepsyn_pass1_min_area],
+        key=_ratio, reverse=True,
+    )
 
     for _pass_idx in range(3):
         any_improved = False
-        for case in ALL_CASES:
+        for case in pass1_cases:
             area = case_area.get(case)
-            if area is None or area < REPRODUCE_MY_DEEPSYN_PASS1_MIN_AREA:
+            if area is None:
                 continue
-            print(f"[{case}] my_deepsyn pass-1 sweep (area={area})")
+            seconds = _deepsyn_pass1_seconds(case)
+            timeout = seconds + 30
+            ratio_str = f"{_ratio(case):.2f}x" if ref_adp.get(case) else "n/a"
+            print(f"[{case}] my_deepsyn pass-1 (area={area}, ratio={ratio_str}, budget={seconds}s)")
             _rows, summary = run_pareto_area_structural_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_MY_DEEPSYN_PASS1_TIMEOUT,
-                root,
-                REPRODUCE_SEED,
-                REPRODUCE_MY_DEEPSYN_PASS1_SECONDS,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                timeout, root, _INITIAL_CFG.seed, seconds,
             )
             if summary.best_adp < summary.baseline_adp:
                 any_improved = True
                 case_area[case] = summary.best_area or area
+                case_adp[case] = summary.best_adp
         if not any_improved:
             break
 
-    # Pass 2: longer budget for medium/large cases; reuse area cache from pass 1.
+    # Pass 2: longer fixed budget for medium/large cases
     for case in ALL_CASES:
         area = case_area.get(case)
-        if area is None or area < REPRODUCE_MY_DEEPSYN_PASS2_MIN_AREA:
+        if area is None or area < cfg.my_deepsyn_pass2_min_area:
             continue
         print(f"[{case}] my_deepsyn pass-2 long sweep (area={area})")
         run_pareto_area_structural_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_MY_DEEPSYN_PASS2_TIMEOUT,
-            root,
-            REPRODUCE_SEED,
-            REPRODUCE_MY_DEEPSYN_PASS2_SECONDS,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.my_deepsyn_pass2_timeout, root, _INITIAL_CFG.seed,
+            cfg.my_deepsyn_pass2_seconds,
         )
 
-    # --- stage 15/16: case-fair final refinement ---
-    print("[reproduce] stage 15/16: case-fair final refinement")
+    # Stage 15: case-fair final package — every case gets the same treatment
+    print("[reproduce] stage 15/17: case-fair final refinement")
     for case in ALL_CASES:
         print(f"[{case}] case-fair final package")
         run_objective_guided_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_CASE_FAIR_STAGE_TIMEOUT,
-            root,
-            1,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.case_fair_stage_timeout, root, 1,
         )
         run_micro_guided_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_CASE_FAIR_STAGE_TIMEOUT,
-            root,
-            1,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.case_fair_stage_timeout, root, 1,
         )
         run_small_case_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_CASE_FAIR_STAGE_TIMEOUT,
-            root,
-            1,
-            REPRODUCE_SMALL_CASE_AREA_THRESHOLD,
-            REPRODUCE_SMALL_CASE_ADP_THRESHOLD,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.case_fair_stage_timeout, root, 1,
+            _REFINE_CFG.small_case_area_threshold,
+            _REFINE_CFG.small_case_adp_threshold,
         )
         run_complement_rescue_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_CASE_FAIR_STAGE_TIMEOUT,
-            root,
-            REPRODUCE_SEED,
-            2,
-            True,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.case_fair_stage_timeout, root, _INITIAL_CFG.seed, 2, True,
         )
 
-    # --- stage 16/17: final convergence — micro + GIA canonical (merged 24 + 25) ---
+    # Stage 16: micro + GIA canonical fixed-point convergence
     print("[reproduce] stage 16/17: deterministic micro-guided and GIA canonical fixed-point convergence")
-    for pass_index in range(REPRODUCE_MICRO_CONVERGENCE_PASSES):
-        pass_summaries: list[CaseSummary] = []
-        print(f"[final-converge] pass {pass_index + 1}/{REPRODUCE_MICRO_CONVERGENCE_PASSES}")
+    for pass_index in range(cfg.micro_convergence_passes):
+        pass_summaries = []
+        print(f"[final-converge] pass {pass_index + 1}/{cfg.micro_convergence_passes}")
         for case in ALL_CASES:
             print(f"[{case}] micro + GIA convergence")
             _rows, summary = run_micro_guided_refine_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_MICRO_CONVERGENCE_TIMEOUT,
-                root,
-                REPRODUCE_MICRO_MAX_FLOWS,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                cfg.micro_convergence_timeout, root, _REFINE_CFG.micro_max_flows,
             )
             pass_summaries.append(summary)
             run_gia_canonical_convergence_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_GIA_CANONICAL_TIMEOUT,
-                root,
-                REPRODUCE_GIA_CANONICAL_MAX_PASSES,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                cfg.gia_canonical_timeout, root, cfg.gia_canonical_max_passes,
             )
-        baseline_total = sum(row.baseline_adp for row in pass_summaries)
-        best_total = sum(row.best_adp for row in pass_summaries)
+        baseline_total = sum(s.baseline_adp for s in pass_summaries)
+        best_total = sum(s.best_adp for s in pass_summaries)
         print(f"[final-converge] pass {pass_index + 1} total ADP {baseline_total} -> {best_total}")
         if best_total >= baseline_total:
             print("[final-converge] converged")
             break
 
-    # --- stage 17/17: targeted 1.5x-ratio push refinement ---
-    print("[reproduce] stage 17/17: targeted 1.5x-ratio push refinement")
-    for case in REPRODUCE_RATIO_PUSH_CASES:
-        print(f"[{case}] 1.5x-ratio push package")
-        if case in REPRODUCE_RATIO_PUSH_PARETO_CASES:
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Phase 5 (stage 17): dynamic ratio push — measure ratios at runtime, run
+#                      rescue package only on cases that actually need it
+# ---------------------------------------------------------------------------
+
+def _phase_ratio_push(
+    args: argparse.Namespace,
+    root: Path,
+    cfg: RatioPushConfig,
+    ref_adp: dict[str, int],
+) -> None:
+    print("[reproduce] stage 17/17: ratio-push refinement")
+
+    # Start from the baseline hand-curated list (always included for reproducibility),
+    # then add any additional case whose measured ratio now exceeds the threshold.
+    case_ratio: dict[str, float] = {}
+    for case in ALL_CASES:
+        _a, _d, adp = measure_adp(args.abc, args.output / f"{case}.aig", 60, root)
+        r = ref_adp.get(case, 0)
+        if adp and r:
+            case_ratio[case] = adp / r
+
+    baseline_set = set(cfg.baseline_cases)
+    dynamic_extra = {
+        c for c, ratio in case_ratio.items()
+        if ratio >= cfg.ratio_threshold and c not in baseline_set
+    }
+    if dynamic_extra:
+        print(f"[ratio-push] dynamic extra cases above {cfg.ratio_threshold}x: "
+              + ", ".join(f"{c}({case_ratio[c]:.2f}x)" for c in sorted(dynamic_extra)))
+
+    # Build final push list: baseline first (in original order), then extras sorted by ratio.
+    push_cases: list[tuple[str, float]] = [
+        (c, case_ratio.get(c, 0.0)) for c in cfg.baseline_cases
+    ] + sorted(
+        [(c, case_ratio[c]) for c in dynamic_extra], key=lambda x: -x[1]
+    )
+    print(f"[ratio-push] {len(push_cases)} cases total: "
+          + ", ".join(f"{c}({r:.2f}x)" for c, r in push_cases))
+
+    for case, ratio in push_cases:
+        print(f"[{case}] ratio-push package (current ratio={ratio:.2f}x)")
+        if case in cfg.pareto_cases:
             run_pareto_area_structural_case(
-                case,
-                args.abc,
-                args.benchmarks,
-                args.output,
-                args.logs,
-                REPRODUCE_RATIO_PUSH_PARETO_TIMEOUT,
-                root,
-                REPRODUCE_SEED,
-                REPRODUCE_RATIO_PUSH_PARETO_SECONDS,
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                cfg.pareto_timeout, root, _INITIAL_CFG.seed, cfg.pareto_seconds,
             )
         run_area_first_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_RATIO_PUSH_TIMEOUT,
-            root,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.timeout, root,
         )
         run_type_guided_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_RATIO_PUSH_TIMEOUT,
-            root,
-            REPRODUCE_RATIO_PUSH_TYPE_FLOWS,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.timeout, root, cfg.type_flows,
         )
         run_objective_guided_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_RATIO_PUSH_TIMEOUT,
-            root,
-            REPRODUCE_RATIO_PUSH_OBJECTIVE_FLOWS,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.timeout, root, cfg.objective_flows,
         )
         run_micro_guided_refine_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_RATIO_PUSH_MICRO_TIMEOUT,
-            root,
-            REPRODUCE_RATIO_PUSH_MICRO_FLOWS,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.micro_timeout, root, cfg.micro_flows,
         )
         run_gia_canonical_convergence_case(
-            case,
-            args.abc,
-            args.benchmarks,
-            args.output,
-            args.logs,
-            REPRODUCE_RATIO_PUSH_GIA_TIMEOUT,
-            root,
-            REPRODUCE_GIA_CANONICAL_MAX_PASSES,
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            cfg.gia_timeout, root, _CONV_CFG.gia_canonical_max_passes,
         )
 
+
+# ---------------------------------------------------------------------------
+# Phase: convergence loop + heavy structural (replaces stages 4-17)
+# ---------------------------------------------------------------------------
+
+# Cases whose final output required pareto/deepsyn/hybrid in the original run.
+# Derived from logs: pareto_area_structural.csv selected=1 or
+# deepsyn/hybrid/long_large improved=1.
+_HEAVY_STRUCTURAL_CASES = frozenset([
+    "ex206", "ex207", "ex221", "ex227", "ex241", "ex243", "ex246", "ex249",
+    "ex250", "ex251", "ex252", "ex253", "ex279", "ex280", "ex281", "ex282",
+    "ex283", "ex284", "ex286", "ex287", "ex288", "ex292", "ex297", "ex298",
+    "ex299",
+])
+
+
+def _phase_convergence_and_structural(
+    args: argparse.Namespace,
+    root: Path,
+    ref_adp: dict[str, int],
+    workers_a: int = 16,
+    workers_b: int = 4,
+) -> None:
+    """Convergence loop (Stage A, parallel) + heavy structural (Stage B, parallel).
+
+    workers_a: parallel workers for Stage A convergence loop (all 100 cases).
+    workers_b: parallel workers for Stage B pareto/deepsyn (heavy, fewer workers
+               to avoid ABC memory contention on large cases).
+    """
+    import threading
+
+    # Resolve paths so threads don't depend on process cwd.
+    import types as _types
+    args = _types.SimpleNamespace(**vars(args))
+    args.abc        = Path(args.abc).resolve()
+    args.benchmarks = Path(args.benchmarks).resolve()
+    args.output     = Path(args.output).resolve()
+    args.logs       = Path(args.logs).resolve()
+    root            = root.resolve()
+
+    backup_dir = args.logs / "backup_before_new_pipeline"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    # Backup stage-1 outputs before touching anything.
+    for case in ALL_CASES:
+        src = args.output / f"{case}.aig"
+        if src.is_file():
+            shutil.copyfile(src, backup_dir / f"{case}.aig")
+
+    # ------------------------------------------------------------------ Stage A
+    print(f"[new-pipeline] stage A: convergence loop (all cases, workers={workers_a})")
+    summaries_lock = threading.Lock()
+    summaries_a: list[CaseSummary] = []
+
+    def _run_convergence(case: str) -> CaseSummary:
+        return run_convergence_loop_case(
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            timeout_per_case=300, root=root, max_passes=40,
+        )
+
+    with ThreadPoolExecutor(max_workers=workers_a) as pool:
+        futures = {pool.submit(_run_convergence, case): case for case in ALL_CASES}
+        for future in as_completed(futures):
+            case = futures[future]
+            try:
+                summary = future.result()
+                with summaries_lock:
+                    summaries_a.append(summary)
+            except Exception as exc:
+                print(f"[{case}] stage A ERROR: {exc}")
+
+    total_before   = sum(s.baseline_adp for s in summaries_a)
+    total_after_a  = sum(s.best_adp     for s in summaries_a)
+    print(f"[new-pipeline] stage A done: {total_before:,} -> {total_after_a:,} "
+          f"({(1 - total_after_a / max(total_before, 1)) * 100:.1f}% reduction)")
+
+    # ------------------------------------------------------------------ Stage B
+    heavy_cases = [c for c in ALL_CASES if c in _HEAVY_STRUCTURAL_CASES]
+    print(f"[new-pipeline] stage B: heavy structural ({len(heavy_cases)} cases, workers={workers_b})")
+
+    def _run_heavy(case: str) -> None:
+        table = read_truth(args.benchmarks / f"{case}.truth")
+        area, _d, adp = measure_adp(args.abc, args.output / f"{case}.aig", 60, root)
+
+        if should_run_pareto_area_structural(table, area):
+            print(f"[{case}] pareto structural")
+            run_pareto_area_structural_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                _STRUCT_CFG.pareto_area_structural_timeout, root,
+                _STRUCT_CFG.seed, _STRUCT_CFG.pareto_area_seconds,
+            )
+
+        if should_run_deepsyn_structural(table, area, adp):
+            print(f"[{case}] deepsyn structural")
+            run_deepsyn_structural_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                _STRUCT_CFG.deepsyn_structural_timeout, root,
+                _STRUCT_CFG.seed, 1, _STRUCT_CFG.deepsyn_structural_seconds,
+            )
+
+        # Polish structural result with convergence loop.
+        run_convergence_loop_case(
+            case, args.abc, args.benchmarks, args.output, args.logs,
+            timeout_per_case=180, root=root, max_passes=20,
+        )
+
+    with ThreadPoolExecutor(max_workers=workers_b) as pool:
+        futures = {pool.submit(_run_heavy, case): case for case in heavy_cases}
+        for future in as_completed(futures):
+            case = futures[future]
+            try:
+                future.result()
+            except Exception as exc:
+                print(f"[{case}] stage B ERROR: {exc}")
+
+    # ------------------------------------------------------------------ Rollback
+    rolled_back = []
+    for case in ALL_CASES:
+        backup  = backup_dir / f"{case}.aig"
+        current = args.output / f"{case}.aig"
+        if not backup.is_file() or not current.is_file():
+            continue
+        try:
+            _, _, cur_adp = measure_adp(args.abc, current, 30, root)
+            _, _, bak_adp = measure_adp(args.abc, backup,  30, root)
+            if cur_adp > bak_adp:
+                shutil.copyfile(backup, current)
+                rolled_back.append(case)
+        except Exception:
+            pass
+
+    if rolled_back:
+        print(f"[new-pipeline] rolled back {len(rolled_back)} cases: {rolled_back}")
+
+    total_after_b = sum(
+        measure_adp(args.abc, args.output / f"{case}.aig", 30, root)[2]
+        for case in ALL_CASES
+    )
+    print(f"[new-pipeline] final total ADP: {total_after_b:,} "
+          f"(vs stage-A: {total_after_a:,})")
+
+
+# ---------------------------------------------------------------------------
+# Top-level entry point — thin orchestrator that calls the phases in order
+# ---------------------------------------------------------------------------
+
+def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[CandidateResult], list[CaseSummary]]:
+    write_reproduce_recipe(args.logs)
+    print(format_reproduce_recipe())
+    print("")
+
+    ref_adp = _load_reference_adp(root)
+    step_results: list[CandidateResult] = []
+
+    # Phase 1: initial synthesis (unchanged — stages 1-3)
+    step_results.extend(_phase_initial_synthesis(args, root, _INITIAL_CFG, workers=16))
+
+    # Phase 2: new simplified convergence loop + structural (replaces stages 4-17)
+    _phase_convergence_and_structural(args, root, ref_adp)
+
     write_results_csv(args.logs / "reproduce_candidates.csv", step_results)
-    final_results, final_summaries = verify_final_outputs(ALL_CASES, args.abc, args.benchmarks, args.output, root)
+    final_results, final_summaries = verify_final_outputs(
+        ALL_CASES, args.abc, args.benchmarks, args.output, root,
+    )
     equivalent_count = sum(1 for row in final_results if row.equivalent)
     total_adp = sum(row.adp or 0 for row in final_results if row.equivalent)
     print("------------------------------------------------------")
