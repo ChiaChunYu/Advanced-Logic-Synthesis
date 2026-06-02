@@ -53,6 +53,13 @@ FLOWS = [
     ("resyn3rs_resub4", "&get; &resyn3rs; &put; balance; resub -K 4; balance; rewrite -z; refactor -z; balance"),
 ]
 
+# deepsyn flows are handled separately (need per-case -O dir)
+DEEPSYN_FLOWS = [
+    ("deepsyn_s42", 42),
+    ("deepsyn_s7",   7),
+    ("deepsyn_s13", 13),
+]
+
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def measure(p: str):
@@ -77,7 +84,7 @@ def try_one_flow(case, fname, fflow, seed: str, truth: str, cur_adp: int, tid: i
     try:
         r = subprocess.run([str(ABC), "-c",
                             f"read_aiger {seed}; {fflow}; write_aiger -s {cand}"],
-                           capture_output=True, text=True, timeout=30)
+                           capture_output=True, text=True, timeout=60)
     except subprocess.TimeoutExpired:
         return None
     if not Path(cand).exists():
@@ -89,6 +96,40 @@ def try_one_flow(case, fname, fflow, seed: str, truth: str, cur_adp: int, tid: i
     if cadp >= cur_adp:
         return None
     return (fname, ca, cd, cadp, cand)
+
+def try_deepsyn(case, fname, seed, cur_adp, tid):
+    """Run &my_deepsyn with a fixed seed. Picks best Pareto AIG by ADP."""
+    seed_n = int(fname.split("s")[-1])
+    pareto_dir = TMP / case / f"ds_{tid}_s{seed_n}"
+    pareto_dir.mkdir(exist_ok=True)
+    cand = str(TMP / case / f"{fname}_{tid}.aig")
+    try:
+        subprocess.run([str(ABC), "-c",
+                        f"read_aiger {seed}; &get; "
+                        f"&my_deepsyn -I 1 -J 500 -T 25 -S {seed_n} -O {pareto_dir} -C area; "
+                        f"&put; strash; dc2; balance; write_aiger -s {cand}"],
+                       capture_output=True, text=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        return None
+
+    # also check Pareto frontier AIGs directly
+    best_cadp = cur_adp
+    best_cand = None
+    for p in list(pareto_dir.glob("*.aig")) + ([Path(cand)] if Path(cand).exists() else []):
+        ca, cd = measure(str(p))
+        if ca is None: continue
+        cadp = ca * cd
+        if cadp < best_cadp:
+            best_cadp = cadp
+            best_cand = str(p)
+
+    if best_cand is None:
+        return None
+    # copy best to cand path for uniform handling
+    shutil.copy(best_cand, cand)
+    ca, cd = measure(cand)
+    if ca is None: return None
+    return (fname, ca, cd, ca * cd, cand)
 
 def optimize_case(case: str, ref_adp: int, workers: int, timeout: int) -> dict:
     case_tmp = TMP / case
@@ -119,6 +160,9 @@ def optimize_case(case: str, ref_adp: int, workers: int, timeout: int) -> dict:
                 ex.submit(try_one_flow, case, fn, ff, work, truth, best_adp, round_n * 1000 + i): (fn, ff)
                 for i, (fn, ff) in enumerate(FLOWS)
             }
+            # add deepsyn flows
+            for j, (dfname, _) in enumerate(DEEPSYN_FLOWS):
+                futs[ex.submit(try_deepsyn, case, dfname, work, best_adp, round_n * 1000 + len(FLOWS) + j)] = (dfname, "")
             for fut in as_completed(futs):
                 res = fut.result()
                 if res is None:
