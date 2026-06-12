@@ -12,3 +12,4 @@ Final_Project_AI-Based_AIG_Optimization/student/mockturtle_opt/mockturtle_opt
 # Note: student/case_recipes/*.json IS tracked — it documents each case.
 Final_Project_AI-Based_AIG_Optimization/output_backup_*/
 Final_Project_AI-Based_AIG_Optimization/student/logs_top10/
+Final_Project_AI-Based_AIG_Optimization/student/experiment/__pycache__/
