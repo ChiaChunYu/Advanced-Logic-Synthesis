@@ -16,7 +16,7 @@
       "prev_adp": 500293
     }
   ],
-  "notes": "",
+  "notes": "14in/14out, distinct=6660. deepsyn 300s: 0 gain. Not obviously arithmetic. TA 226K vs our 500K. UNCRACKED.",
   "classification": {
     "labels": "general_random",
     "effective_support": "14",

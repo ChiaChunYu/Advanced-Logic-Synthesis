@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "16in/8out. 98 distinct outputs. SYMMETRIC in A,B. A=0 -> {0x00,0x80} (sign from B, magnitude 0). Diagonal a=b MONOTONE increasing in e4m3-decoded exponent. e_out vs e_in(a=b): 2->5,4->7,6->8,8->9,10->10 (sublinear, NOT multiplication which needs 2e-7). Looks like sqrt/log/saturating-add of two fp8. Not yet cracked. ratio 2.22x, TA ref 20355.",
+  "notes": "16in/8out symmetric, 98 distinct. &dsd finds H=PRIME(...,EXOR(d,l),EXOR(h,p)) - has paired-XOR substructure but main body is PRIME (not decomposable). Re-derivation gives 4690-8968 ANDs > current 2378. Not fp8 mul/add/avg/max/min/hypot. UNCRACKED.",
   "classification": {
     "labels": "general_random|monotone_positive_general|symmetric_variable_groups",
     "effective_support": "16",

@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "16in/16out, distinct=24485 (near-bijective). NOT a smooth fp16 unary: large x (>=2) often passthrough but small/mid x map to scattered values in [-1,1] with no monotonicity (x=0.25->0.625, 1->0.625, 1.25->-0.896, 1.5->0.625). Not gelu/silu/x-c. Looks like a bit-level transform/hash, not arithmetic. deepsyn 300s: 0 gain. TA ref 1.01M vs our 2.24M (2.21x). UNCRACKED.",
   "classification": {
     "labels": "general_random",
     "effective_support": "16",
