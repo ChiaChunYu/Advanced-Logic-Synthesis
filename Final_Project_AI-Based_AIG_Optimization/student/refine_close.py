@@ -7,18 +7,20 @@ then writes improved AIGs to output/ (only if verified & strictly better).
 Usage:
   python3 student/refine_close.py [--max-ratio 1.20] [--workers 8] [--timeout 60]
 """
-import argparse, csv, re, shutil, subprocess, sys
+import argparse, csv, shutil, subprocess, sys, tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+from abc_core import measure_aig, verify_equivalence, resolve_reference_csv
 
 ROOT      = Path(__file__).resolve().parent.parent
 ABC       = ROOT / "student" / "abc"
 BENCHMARKS= ROOT / "benchmarks"
 OUTPUT    = ROOT / "output"
-TMP       = Path("/tmp/refine_close")
+TMP       = Path(tempfile.gettempdir()) / "refine_close"
 TMP.mkdir(exist_ok=True)
 
-REF_CSV   = ROOT / "reference_result.csv"
+REF_CSV   = resolve_reference_csv(ROOT)
 
 FLOWS = [
     ("resub4",          "resub -K 4; balance; rewrite -z; refactor -z; balance"),
@@ -63,20 +65,10 @@ DEEPSYN_FLOWS = [
 # ── helpers ────────────────────────────────────────────────────────────────────
 
 def measure(p: str):
-    r = subprocess.run([str(ABC), "-c", f"read_aiger {p}; ps"],
-                       capture_output=True, text=True)
-    o = r.stdout + r.stderr
-    ma = re.search(r'and\s*=\s*(\d+)', o)
-    md = re.search(r'lev\s*=\s*(\d+)', o)
-    if ma and md:
-        return int(ma.group(1)), int(md.group(1))
-    return None, None
+    return measure_aig(ABC, p)
 
 def verify(truth: str, aig: str):
-    r = subprocess.run([str(ABC), "-c",
-                        f"read_truth -xf {truth}; st; &get; &cec -t {aig}"],
-                       capture_output=True, text=True)
-    return "Networks are equivalent" in (r.stdout + r.stderr)
+    return verify_equivalence(ABC, truth, aig)
 
 def try_one_flow(case, fname, fflow, seed: str, truth: str, cur_adp: int, tid: int):
     """Run one flow against seed. Returns (fname, area, delay, adp, cand_path) or None."""
@@ -126,7 +118,8 @@ def try_deepsyn(case, fname, seed, cur_adp, tid):
     if best_cand is None:
         return None
     # copy best to cand path for uniform handling
-    shutil.copy(best_cand, cand)
+    if Path(best_cand).resolve() != Path(cand).resolve():
+        shutil.copy(best_cand, cand)
     ca, cd = measure(cand)
     if ca is None: return None
     return (fname, ca, cd, ca * cd, cand)
@@ -220,7 +213,8 @@ def main():
         for row in csv.DictReader(f):
             ref[row["case"]] = int(row["adp"])
 
-    # Measure current output ADP — copy each AIG to /tmp first to avoid space-in-path
+    # Measure current output ADP after copying each AIG to a temp path to avoid
+    # shell/path issues in directories that contain spaces.
     current = {}
     for case in sorted(ref):
         aig = OUTPUT / f"{case}.aig"
@@ -239,9 +233,9 @@ def main():
         targets = {c: ref[c] for c in sorted(ref)
                    if c in current and 1.0 < current[c] / ref[c] <= args.max_ratio}
 
-    print(f"Targeting {len(targets)} cases (ratio 1.0–{args.max_ratio}x, {args.workers} workers/case)")
+    print(f"Targeting {len(targets)} cases (ratio 1.0-{args.max_ratio}x, {args.workers} workers/case)")
     print(f"{'Case':<8} {'Start':>8} {'Best':>8} {'Ref':>8} {'Ratio':>7}  Flows used")
-    print("─" * 75)
+    print("-" * 75)
 
     results = []
     # Run cases in parallel (case_workers cases at a time, each with args.workers flow threads)
@@ -252,7 +246,7 @@ def main():
         for fut in as_completed(futs):
             r = fut.result()
             results.append(r)
-            marker = " ◄ BEATS" if r["beats_ref"] else ("" if not r["improved"] else " ↓")
+            marker = " < BEATS" if r["beats_ref"] else ("" if not r["improved"] else " improved")
             print(f"{r['case']:<8} {r['start_adp']:>8} {r['best_adp']:>8} {r['ref_adp']:>8} {r['ratio']:>7.4f}{marker}")
             for fl in r["flows"]:
                 print(f"         {fl}")
@@ -266,7 +260,7 @@ def main():
             dst = OUTPUT / f"{r['case']}.aig"
             shutil.copy(r["work"], str(dst))
             written.append(r["case"])
-            print(f"  Updated output/{r['case']}.aig  adp {r['start_adp']} → {r['best_adp']}"
+            print(f"  Updated output/{r['case']}.aig  adp {r['start_adp']} -> {r['best_adp']}"
                   f"  (ref={r['ref_adp']}  ratio={r['ratio']:.4f})")
 
     if not written:

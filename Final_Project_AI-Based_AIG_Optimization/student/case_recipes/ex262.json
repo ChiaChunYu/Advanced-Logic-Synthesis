@@ -1,0 +1,31 @@
+{
+  "case": "ex262",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 276,
+      "delay": 31,
+      "adp": 8556,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "classification": {
+    "labels": "mixed_general_logic|mux_like|symmetric|exact_k|cube_decoder_like|npn_at-least-2",
+    "effective_support": "12",
+    "recommended_strategy": "threshold_or_popcount_initial"
+  },
+  "initial_synthesis": {
+    "initial_method": "existing_output",
+    "flow_name": "current",
+    "flow_commands": ""
+  },
+  "reference_adp": 4900,
+  "ratio_vs_reference": 1.7461,
+  "best": {
+    "area": 276,
+    "delay": 31,
+    "adp": 8556,
+    "date": "2026-06-12"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "case": "ex226",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 32050,
+      "delay": 19,
+      "adp": 608950,
+      "prev_adp": null
+    },
+    {
+      "date": "2026-06-12",
+      "area": 32049,
+      "delay": 19,
+      "adp": 608931,
+      "prev_adp": 608950
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "bdd_original",
+    "flow_name": "ga_01",
+    "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance; balance; rewrite; balance"
+  },
+  "reference_adp": 587790,
+  "ratio_vs_reference": 1.036,
+  "best": {
+    "area": 32049,
+    "delay": 19,
+    "adp": 608931,
+    "date": "2026-06-12"
+  }
+}

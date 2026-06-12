@@ -1,0 +1,31 @@
+{
+  "case": "ex252",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 737,
+      "delay": 17,
+      "adp": 12529,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "classification": {
+    "labels": "mixed_general_logic|constant_zero|constant_output_mixed",
+    "effective_support": "16",
+    "recommended_strategy": "constant_aware_multioutput_refine"
+  },
+  "initial_synthesis": {
+    "initial_method": "existing_output",
+    "flow_name": "current",
+    "flow_commands": ""
+  },
+  "reference_adp": 2603,
+  "ratio_vs_reference": 4.8133,
+  "best": {
+    "area": 737,
+    "delay": 17,
+    "adp": 12529,
+    "date": "2026-06-12"
+  }
+}

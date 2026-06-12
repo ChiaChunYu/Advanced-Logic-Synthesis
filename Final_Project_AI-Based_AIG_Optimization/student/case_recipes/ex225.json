@@ -1,0 +1,31 @@
+{
+  "case": "ex225",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 11302,
+      "delay": 18,
+      "adp": 203436,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "classification": {
+    "labels": "mux_like",
+    "effective_support": "16",
+    "recommended_strategy": "selector_first_shannon_bdd_initial"
+  },
+  "initial_synthesis": {
+    "initial_method": "bdd_original",
+    "flow_name": "adp_balanced",
+    "flow_commands": "rewrite; refactor; dc2; rewrite -z; refactor -z; balance"
+  },
+  "reference_adp": 116676,
+  "ratio_vs_reference": 1.7436,
+  "best": {
+    "area": 11302,
+    "delay": 18,
+    "adp": 203436,
+    "date": "2026-06-12"
+  }
+}

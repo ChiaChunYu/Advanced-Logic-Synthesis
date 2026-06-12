@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Document</title>
+<style>:root {
+  --bg: #fafafa; --fg: #1a1a1a; --muted: #6b7280; --border: #e5e7eb;
+  --accent: #2563eb; --code-bg: #f3f4f6; --block-bg: #f8f9fa; --radius: 8px;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: "SF Mono", "Cascadia Code", "Fira Code", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111113; --fg: #e4e4e7; --muted: #9ca3af; --border: #27272a;
+    --accent: #60a5fa; --code-bg: #1e1e22; --block-bg: #18181b;
+  }
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 16px; scroll-behavior: smooth; }
+body {
+  font-family: var(--font); color: var(--fg); background: var(--bg);
+  line-height: 1.75; max-width: 780px; margin: 0 auto; padding: 3rem 1.5rem 6rem;
+}
+h1, h2, h3, h4, h5, h6 {
+  font-weight: 650; line-height: 1.3; margin-top: 2.5rem; margin-bottom: 0.75rem;
+  letter-spacing: -0.02em;
+}
+h1 { font-size: 2rem; margin-top: 0; padding-bottom: 0.5rem; border-bottom: 2px solid var(--border); }
+h2 { font-size: 1.5rem; padding-bottom: 0.3rem; border-bottom: 1px solid var(--border); }
+h3 { font-size: 1.2rem; }
+p { margin-bottom: 1rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+strong { font-weight: 650; }
+blockquote {
+  margin: 1.25rem 0; padding: 0.75rem 1.25rem;
+  border-left: 3px solid var(--accent); background: var(--block-bg);
+  border-radius: 0 var(--radius) var(--radius) 0; color: var(--muted);
+}
+blockquote p { margin-bottom: 0.5rem; }
+blockquote p:last-child { margin-bottom: 0; }
+code {
+  font-family: var(--mono); font-size: 0.875em;
+  background: var(--code-bg); padding: 0.15em 0.4em; border-radius: 4px;
+}
+pre {
+  margin: 1.25rem 0; padding: 1.25rem; background: var(--code-bg);
+  border-radius: var(--radius); overflow-x: auto; border: 1px solid var(--border);
+}
+pre code { background: none; padding: 0; font-size: 0.85rem; line-height: 1.6; }
+ul, ol { margin: 0.75rem 0 1rem 1.5rem; }
+li { margin-bottom: 0.35rem; }
+li > ul, li > ol { margin-top: 0.35rem; margin-bottom: 0; }
+table {
+  width: 100%; border-collapse: collapse; margin: 1.25rem 0; font-size: 0.925rem;
+  border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+}
+th, td { padding: 0.65rem 1rem; text-align: left; border-bottom: 1px solid var(--border); }
+th { font-weight: 600; background: var(--block-bg); }
+tr:last-child td { border-bottom: none; }
+hr { border: none; border-top: 1px solid var(--border); margin: 2rem 0; }
+img { max-width: 100%; border-radius: var(--radius); }
+</style>
+</head>
+<body>
+<h1 id="2026-advanced-logic-synthesis-final-project-ai-based-aig-optimization">2026 Advanced Logic Synthesis - Final Project: AI-Based AIG Optimization</h1>
+<p><strong>Instructor</strong>: Prof. TingTing Hwang</p>
+<p><strong>Teaching Assistants</strong>: Wuqian Tang, Ruijie Wang</p>
+<p><strong>Contact</strong>: wqtang@cs.nthu.edu.tw, wrj651121@gmail.com</p>
+<p><strong>Tentative Due Date: 2026/06/15 (Mon.) 23:59:59</strong></p>
+<h2 id="background">Background</h2>
+<p>Logic synthesis is a key stage in the digital IC design flow. Given a Boolean function or an RTL description, a synthesis tool transforms the design into an optimized gate-level representation while preserving functional correctness.</p>
+<p>In this project, each benchmark is given as a truth table, and your task is to synthesize an equivalent <strong>And-Inverter Graph (AIG)</strong>. An AIG represents Boolean logic using two-input AND nodes and complemented edges. This compact representation is widely used in logic optimization, equivalence checking, technology mapping, and formal verification.</p>
+<p>The quality of an AIG is measured by two main objectives:</p>
+<ol>
+<li><strong>Area</strong>: the number of internal two-input AND nodes.</li>
+<li><strong>Delay</strong>: the number of AIG logic levels.</li>
+</ol>
+<p>This project uses <strong>area-delay product (ADP)</strong> as the optimization target:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>ADP = area * delay
+</code></pre></div>
+
+<p>You are required to use an AI-based or LLM-based method to help develop, guide, search, or improve your synthesis flow.</p>
+<h2 id="overview">Overview</h2>
+<p>You are given 100 Boolean-function benchmarks in <code>benchmarks/</code>, named <code>ex200.truth</code> through <code>ex299.truth</code>. For each input truth table, generate one functionally equivalent AIG file under <code>output/</code>.</p>
+<p>This final project has two parts:</p>
+<ol>
+<li>Generate optimized equivalent AIGs for all benchmarks.</li>
+<li>Write a <code>report.pdf</code> explaining how AI/LLM techniques were used and how to reproduce your results. The more AI/LLM tools are used, the higher your score is.</li>
+</ol>
+<p>Your submitted source code will be manually reviewed. All code used to produce your AIG files must be placed inside <code>student/</code>.</p>
+<h2 id="getting-started">Getting Started</h2>
+<p>Extract the assignment package and enter the working directory:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>tar<span style="color: #BBB"> </span>-xzf<span style="color: #BBB"> </span>ALS_Final_Project.tar.gz
+<span style="color: #008000">cd</span><span style="color: #BBB"> </span>ALS_Final_Project
+</code></pre></div>
+
+<p>The package layout:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>ALS_Final_Project/
+|-- README.md              # This file
+|-- benchmarks/            # Input truth tables, ex200.truth ... ex299.truth
+|-- output/                # Your generated AIG files, ex200.aig ... ex299.aig
+|-- student/               # Your source code and tools
+|   |-- abc                # Provided ABC executable
+|   `-- optimizer.py       # Baseline example optimizer
+|-- evaluate.py            # Local equivalence and ADP checker
+|-- reference_result.csv   # Reference ADP baseline for each case
+`-- compress.sh            # Submission packaging script
+</code></pre></div>
+
+<p>Run the provided baseline optimizer:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>python3<span style="color: #BBB"> </span>student/optimizer.py
+</code></pre></div>
+
+<p>This generates one baseline AIG for each benchmark in <code>output/</code>.</p>
+<p>To generate a single case:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>python3<span style="color: #BBB"> </span>student/optimizer.py<span style="color: #BBB"> </span>--case<span style="color: #BBB"> </span>ex200
+</code></pre></div>
+
+<p>You are expected to improve this baseline with your own AI/LLM-based optimization method.</p>
+<h2 id="input-format">Input Format</h2>
+<p>Each benchmark is a truth-table file:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>benchmarks/exNNN.truth
+</code></pre></div>
+
+<p>where <code>NNN</code> ranges from <code>200</code> to <code>299</code>.</p>
+<p>The truth tables should be read by ABC using:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>read_truth -xf benchmarks/exNNN.truth
+</code></pre></div>
+
+<h2 id="output-format">Output Format</h2>
+<p>For each input benchmark, submit exactly one AIG file:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>output/exNNN.aig
+</code></pre></div>
+
+<p>Rules:</p>
+<ul>
+<li>The output file name must match the benchmark name.</li>
+<li>The required file-name format is exactly <code>exNNN.aig</code>.</li>
+<li>For example, the output for <code>benchmarks/ex200.truth</code> must be <code>output/ex200.aig</code>.</li>
+<li>Extra AIG files with other names may be rejected by the evaluation script.</li>
+</ul>
+<h2 id="correctness">Correctness</h2>
+<p>Functional correctness is mandatory. If an AIG is not equivalent to the corresponding truth table, that case receives <strong>0 points</strong>.</p>
+<p>The equivalence check uses ABC:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>./student/abc<span style="color: #BBB"> </span>-c<span style="color: #BBB"> </span><span style="color: #BA2121">&quot;read_truth -xf benchmarks/ex200.truth; st; &amp;get; &amp;cec -t output/ex200.aig&quot;</span>
+</code></pre></div>
+
+<p>The expected successful result is:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>Networks are equivalent.
+</code></pre></div>
+
+<h2 id="student-implementation">Student Implementation</h2>
+<p>Work inside <code>student/</code>. You may add any number of source files, scripts, prompts, logs, or helper programs, as long as they are needed to reproduce or explain your method.</p>
+<p>The provided <code>student/optimizer.py</code> is only a minimal example. It uses the simple ABC flow:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>read_truth -xf &lt;benchmark&gt;; st; write_aiger -s &lt;output&gt;
+</code></pre></div>
+
+<p>You may replace it with your own implementation or extend it. Your method may use ABC commands, custom scripts, search algorithms, reinforcement learning, LLM-generated synthesis strategies, prompt-guided optimization, or other AI-based approaches.</p>
+<blockquote>
+<p><strong>WARNING</strong>: TA will manually review your source code and report. If you use any technique that circumvents the intended task, such as hardcoding hidden grading outcomes or bypassing equivalence requirements, your score may be reduced to <strong>0 points</strong>.</p>
+</blockquote>
+<h2 id="local-evaluation">Local Evaluation</h2>
+<p>Run the local evaluator from the project root:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>python3<span style="color: #BBB"> </span>evaluate.py
+</code></pre></div>
+
+<p>The script checks every <code>output/exNNN.aig</code> against the corresponding truth table. If the AIG is equivalent, it reports area, delay, and ADP.</p>
+<p>To evaluate a single case:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>python3<span style="color: #BBB"> </span>evaluate.py<span style="color: #BBB"> </span>--case<span style="color: #BBB"> </span>ex200
+</code></pre></div>
+
+<p>The evaluator uses the same correctness command described above, then measures area and delay with ABC <code>ps</code>.</p>
+<h2 id="report">Report</h2>
+<p>Write your report as <code>report.pdf</code> only. Do not submit <code>.doc</code> or <code>.docx</code> files. The report must be at most <strong>3 pages</strong>.</p>
+<p>Your report should explain how AI/LLM techniques were used and how to reproduce your results. The more AI/LLM tools are used, the higher your score is.</p>
+<p>Your report must include at least:</p>
+<ol>
+<li>How to compile or set up your program.</li>
+<li>How to execute your optimizer and reproduce your AIG outputs.</li>
+<li>The overall architecture of your method.</li>
+<li>How AI/LLM techniques were used in your workflow.</li>
+<li>Any prompts, models, scripts, or search strategies used.</li>
+<li>Experimental results, including area, delay, and ADP observations.</li>
+<li>Difficulties, limitations, and possible improvements.</li>
+</ol>
+<p>Upload <code>report.pdf</code> separately to eeclass. Do not include it inside the <code>.tar.gz</code> archive.</p>
+<h2 id="grading">Grading</h2>
+<table>
+<thead>
+<tr>
+<th>Component</th>
+<th style="text-align: right;">Weight</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>AIG quality</td>
+<td style="text-align: right;">70%</td>
+</tr>
+<tr>
+<td>AI/LLM methodology report and source-code review</td>
+<td style="text-align: right;">30%</td>
+</tr>
+</tbody>
+</table>
+<h3 id="demo-requirement">Demo Requirement</h3>
+<p>You must attend the final project demo session in person. The TA will confirm your score during the demo.</p>
+<p>If you do not attend the demo, this final project will receive <strong>0 points</strong>, even if you submitted all required files to eeclass.</p>
+<p>The detailed demo schedule will be announced later on eeclass.</p>
+<h3 id="aig-quality-score">AIG Quality Score</h3>
+<p>There are 100 cases. Each case is worth 1 point before scaling.</p>
+<p>For each case, only functionally equivalent AIGs are considered. Among all students' equivalent submissions, the smallest ADP for that case is denoted as <code>ADP_min</code> and receives 1 point.</p>
+<p>For another equivalent submission with ADP <code>ADP_yours</code>, the case score is:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>ADP_min / ADP_yours
+</code></pre></div>
+
+<p>The total AIG-quality raw score is the sum over all 100 cases, then scaled to 70% of the final grade.</p>
+<p>Incorrect or missing AIGs receive 0 points for that case.</p>
+<h3 id="reference-baseline">Reference Baseline</h3>
+<p>The file <code>reference_result.csv</code> provides a reference ADP baseline for each case. If your final ADP for a case is not better than <code>1.5 * reference_adp</code>, the score for that case may be discounted.</p>
+<p>The exact discount factor will be determined after all student submissions are collected.</p>
+<p>The reference AIG files used to generate <code>reference_result.csv</code> will be released on the course website after the final project deadline.</p>
+<h2 id="submission">Submission</h2>
+<h3 id="step-1-complete-your-code-and-outputs">Step 1: Complete your code and outputs</h3>
+<p>Before packaging, make sure:</p>
+<ul>
+<li><code>output/</code> contains <code>ex200.aig</code> through <code>ex299.aig</code>.</li>
+<li>Every output file name follows <code>exNNN.aig</code>.</li>
+<li><code>python3 evaluate.py</code> reports equivalence for all 100 cases.</li>
+<li>All source code used to generate the AIGs is under <code>student/</code>.</li>
+<li><code>report.pdf</code> explains how to compile and run your method.</li>
+</ul>
+<h3 id="step-2-package-your-submission">Step 2: Package your submission</h3>
+<p>Run from the project root:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>./compress.sh<span style="color: #BBB"> </span>&lt;Your_Student_ID&gt;
+<span style="color: #3D7B7B; font-style: italic"># Example:</span>
+./compress.sh<span style="color: #BBB"> </span><span style="color: #666">112062873</span>
+</code></pre></div>
+
+<p>This creates:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>&lt;Student_ID&gt;.tar.gz
+</code></pre></div>
+
+<p>The archive contains:</p>
+<div class="code" style="background: #f8f8f8"><pre style="line-height: 125%;"><span></span><code>output/
+student/
+</code></pre></div>
+
+<h3 id="step-3-submit-to-eeclass">Step 3: Submit to eeclass</h3>
+<p>Upload the following <strong>two files</strong> to eeclass:</p>
+<ol>
+<li><strong><code>&lt;Student_ID&gt;.tar.gz</code></strong> - generated by <code>compress.sh</code>.</li>
+<li><strong><code>report.pdf</code></strong> - uploaded separately, not inside the tar.gz.</li>
+</ol>
+<p>You must also attend the demo session. Missing the demo means this assignment receives <strong>0 points</strong>.</p>
+<h3 id="late-penalty">Late Penalty</h3>
+<ul>
+<li>Within 24 hours: <strong>20% off</strong></li>
+<li>Within 48 hours: <strong>40% off</strong></li>
+<li>More than 2 days: <strong>0 points</strong></li>
+</ul>
+<h2 id="contact">Contact</h2>
+<ul>
+<li><strong>TA</strong>: Wuqian Tang, Ruijie Wang</li>
+<li><strong>Email</strong>: wqtang@cs.nthu.edu.tw, wrj651121@gmail.com</li>
+</ul>
+</body>
+</html>

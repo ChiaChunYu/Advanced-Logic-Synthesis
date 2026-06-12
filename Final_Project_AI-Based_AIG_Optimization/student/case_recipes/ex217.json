@@ -1,0 +1,26 @@
+{
+  "case": "ex217",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 454,
+      "delay": 18,
+      "adp": 8172,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "bdd_low_influence",
+    "flow_name": "ga_01",
+    "flow_commands": "rewrite -z; refactor -z; dc2; dc2; rewrite -z; refactor -z; balance"
+  },
+  "reference_adp": 5785,
+  "ratio_vs_reference": 1.4126,
+  "best": {
+    "area": 454,
+    "delay": 18,
+    "adp": 8172,
+    "date": "2026-06-12"
+  }
+}

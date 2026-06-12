@@ -1,0 +1,26 @@
+{
+  "case": "ex231",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 1145,
+      "delay": 12,
+      "adp": 13740,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "bdd_original",
+    "flow_name": "llm_mix_2",
+    "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
+  },
+  "reference_adp": 14066,
+  "ratio_vs_reference": 0.9768,
+  "best": {
+    "area": 1145,
+    "delay": 12,
+    "adp": 13740,
+    "date": "2026-06-12"
+  }
+}

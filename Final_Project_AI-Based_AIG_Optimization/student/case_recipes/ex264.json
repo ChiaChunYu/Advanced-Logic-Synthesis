@@ -1,0 +1,26 @@
+{
+  "case": "ex264",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 555,
+      "delay": 38,
+      "adp": 21090,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "existing_output",
+    "flow_name": "current",
+    "flow_commands": ""
+  },
+  "reference_adp": 9724,
+  "ratio_vs_reference": 2.1689,
+  "best": {
+    "area": 555,
+    "delay": 38,
+    "adp": 21090,
+    "date": "2026-06-12"
+  }
+}

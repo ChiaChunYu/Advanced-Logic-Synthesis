@@ -1,0 +1,31 @@
+{
+  "case": "ex251",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 3210,
+      "delay": 16,
+      "adp": 51360,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "classification": {
+    "labels": "general_random|symmetric_variable_groups",
+    "effective_support": "16",
+    "recommended_strategy": "abc_portfolio_general_random"
+  },
+  "initial_synthesis": {
+    "initial_method": "bdd_selector_reduction",
+    "flow_name": "ga_00",
+    "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; dc2; rewrite -z; refactor -z; balance"
+  },
+  "reference_adp": 39270,
+  "ratio_vs_reference": 1.3079,
+  "best": {
+    "area": 3210,
+    "delay": 16,
+    "adp": 51360,
+    "date": "2026-06-12"
+  }
+}

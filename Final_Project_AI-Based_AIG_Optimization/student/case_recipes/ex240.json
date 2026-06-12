@@ -1,0 +1,38 @@
+{
+  "case": "ex240",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 1639,
+      "delay": 17,
+      "adp": 27863,
+      "prev_adp": null
+    },
+    {
+      "date": "2026-06-12",
+      "area": 338,
+      "delay": 45,
+      "adp": 15210,
+      "prev_adp": 27863
+    }
+  ],
+  "notes": "fp8 e4m3 ADD (subnormals on, RNE, saturate, NaN=0x7F). Operand A={x15..x8}, B={x7..x0}. Semantic RTL via student/fp8_synth.py beats structural: 27863 -> 15210. Verified bit-exact (65536 rows) + ABC CEC.",
+  "classification": {
+    "labels": "general_random|monotone_positive_general",
+    "effective_support": "16",
+    "recommended_strategy": "monotone_factor_then_delay_area_refine"
+  },
+  "initial_synthesis": {
+    "initial_method": "bdd_high_influence",
+    "flow_name": "llm_mix_1",
+    "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance"
+  },
+  "reference_adp": 13299,
+  "ratio_vs_reference": 1.1437,
+  "best": {
+    "area": 338,
+    "delay": 45,
+    "adp": 15210,
+    "date": "2026-06-12"
+  }
+}

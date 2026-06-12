@@ -1,0 +1,31 @@
+{
+  "case": "ex254",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 2688,
+      "delay": 17,
+      "adp": 45696,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "classification": {
+    "labels": "general_random|symmetric_variable_groups",
+    "effective_support": "16",
+    "recommended_strategy": "abc_portfolio_general_random"
+  },
+  "initial_synthesis": {
+    "initial_method": "bdd_selector_reduction",
+    "flow_name": "llm_mix_2",
+    "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
+  },
+  "reference_adp": 38220,
+  "ratio_vs_reference": 1.1956,
+  "best": {
+    "area": 2688,
+    "delay": 17,
+    "adp": 45696,
+    "date": "2026-06-12"
+  }
+}

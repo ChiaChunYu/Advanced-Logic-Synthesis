@@ -1,0 +1,26 @@
+{
+  "case": "ex238",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 1482,
+      "delay": 13,
+      "adp": 19266,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "bdd_original",
+    "flow_name": "area_dc2",
+    "flow_commands": "dc2; rewrite -z; refactor -z; balance"
+  },
+  "reference_adp": 16549,
+  "ratio_vs_reference": 1.1642,
+  "best": {
+    "area": 1482,
+    "delay": 13,
+    "adp": 19266,
+    "date": "2026-06-12"
+  }
+}

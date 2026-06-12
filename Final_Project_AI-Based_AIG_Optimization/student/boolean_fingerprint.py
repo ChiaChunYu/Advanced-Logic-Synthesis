@@ -637,6 +637,10 @@ def recommended_strategy(labels: list[str], effective_support_size: int) -> str:
     label_set = set(labels)
     if "parity" in label_set or "affine" in label_set:
         return "xor_tree_initial_then_balance_rewrite"
+    if "monotone_positive_general" in label_set:
+        return "monotone_factor_then_delay_area_refine"
+    if "constant_output_mixed" in label_set:
+        return "constant_aware_multioutput_refine"
     if label_set & {"majority", "threshold_positive", "threshold_negative", "exact_k", "one_hot_exactly_one"}:
         return "threshold_or_popcount_initial"
     if "cube_decoder_like" in label_set:
@@ -659,8 +663,34 @@ def fingerprint_case(truth: Path) -> CaseFingerprint:
     outputs = [classify_output(bits, table, index) for index, bits in enumerate(table.outputs)]
     symmetry_groups = exact_symmetry_groups(table, effective_support)
     labels, explanations, confidence = aggregate_labels(outputs)
+    if labels == ["general_random"]:
+        if monotonicity_scores:
+            strong_monotone = [
+                index
+                for index, score in enumerate(monotonicity_scores)
+                if score >= 0.86 and monotonicity_dirs[index] == "positive"
+            ]
+            if len(strong_monotone) >= max(2, len(effective_support) // 3):
+                if "monotone_positive_general" not in labels:
+                    labels.append("monotone_positive_general")
+                explanations.append(
+                    "case-level positive monotone variables: "
+                    + ", ".join(f"x{index}" for index in strong_monotone[:12])
+                )
+                confidence = min(0.99, confidence + 0.08)
+    constant_outputs = sum(
+        1
+        for output in outputs
+        if "constant_zero" in output.labels or "constant_one" in output.labels
+    )
+    if constant_outputs and constant_outputs < len(outputs):
+        if "constant_output_mixed" not in labels:
+            labels.append("constant_output_mixed")
+        explanations.append(f"case-level mixed constant outputs: {constant_outputs}/{len(outputs)}")
+        confidence = min(0.99, confidence + 0.02)
     if symmetry_groups:
-        labels = list(dict.fromkeys(labels + ["symmetric_variable_groups"]))
+        if "symmetric_variable_groups" not in labels:
+            labels.append("symmetric_variable_groups")
         explanations.append("case-level exact symmetry groups: " + "; ".join("{" + ",".join(f"x{v}" for v in group) + "}" for group in symmetry_groups))
         confidence = min(0.99, confidence + 0.03)
     strategy = recommended_strategy(labels, len(effective_support))

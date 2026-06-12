@@ -1,0 +1,26 @@
+{
+  "case": "ex290",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 3806,
+      "delay": 13,
+      "adp": 49478,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "bdd_selector_reduction",
+    "flow_name": "llm_mix_2",
+    "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
+  },
+  "reference_adp": 42328,
+  "ratio_vs_reference": 1.1689,
+  "best": {
+    "area": 3806,
+    "delay": 13,
+    "adp": 49478,
+    "date": "2026-06-12"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "case": "ex297",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 29429,
+      "delay": 17,
+      "adp": 500293,
+      "prev_adp": null
+    },
+    {
+      "date": "2026-06-12",
+      "area": 29420,
+      "delay": 17,
+      "adp": 500140,
+      "prev_adp": 500293
+    }
+  ],
+  "notes": "",
+  "classification": {
+    "labels": "general_random",
+    "effective_support": "14",
+    "recommended_strategy": "abc_portfolio_general_random"
+  },
+  "initial_synthesis": {
+    "initial_method": "bdd_high_influence",
+    "flow_name": "llm_mix_2",
+    "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
+  },
+  "reference_adp": 225900,
+  "ratio_vs_reference": 2.214,
+  "best": {
+    "area": 29420,
+    "delay": 17,
+    "adp": 500140,
+    "date": "2026-06-12"
+  }
+}

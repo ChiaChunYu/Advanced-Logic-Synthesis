@@ -1,0 +1,26 @@
+{
+  "case": "ex298",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 25706,
+      "delay": 17,
+      "adp": 437002,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "bdd_high_influence",
+    "flow_name": "llm_mix_1",
+    "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance"
+  },
+  "reference_adp": 442296,
+  "ratio_vs_reference": 0.988,
+  "best": {
+    "area": 25706,
+    "delay": 17,
+    "adp": 437002,
+    "date": "2026-06-12"
+  }
+}

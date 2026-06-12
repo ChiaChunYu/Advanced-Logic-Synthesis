@@ -1,0 +1,26 @@
+{
+  "case": "ex233",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 1574,
+      "delay": 14,
+      "adp": 22036,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "bdd_original",
+    "flow_name": "ga_01",
+    "flow_commands": "dc2; drw; drf; rewrite; dc2; balance; rewrite; balance"
+  },
+  "reference_adp": 20174,
+  "ratio_vs_reference": 1.0923,
+  "best": {
+    "area": 1574,
+    "delay": 14,
+    "adp": 22036,
+    "date": "2026-06-12"
+  }
+}

@@ -37,7 +37,8 @@ single stage, but `reproduce_best.sh` is the command to use for complete
 result reproduction.
 
 Complete regeneration is intentionally long-running: the pipeline runs
-17 deterministic stages covering hybrid synthesis, structural resynthesis
+the deterministic core stages plus targeted verified cleanup stages covering
+hybrid synthesis, structural resynthesis
 (ttopt, deepsyn, Pareto, mockturtle, Yosys hybrid), area-first refinement,
 `&my_deepsyn` all-case sweep, case-fair final refinement, and final
 convergence passes.
@@ -104,6 +105,27 @@ tables to identify useful structure:
 - exact recognized templates such as affine/parity, threshold/popcount,
   comparator, adder, multiplier, square, divider quotient, and integer square
   root when proven by the truth table
+- refined case-level labels for monotone-positive general logic and
+  mixed constant-output functions; these prevent visually similar
+  general-random cases from all using the same ABC strategy package
+- semantic class-split reconstruction for float-like and unknown cases:
+  candidate class variables model sign/exponent/high-byte selectors, and each
+  class synthesizes only the residual mantissa/low-bit function
+- field-pair semantic reconstruction for 16-bit conversion/unknown functions:
+  paired high-nibble and paired low-nibble splits model circuits whose two
+  logical operands are packed into the high and low byte fields.  This gives a
+  different front-end topology from a plain byte split and is logged separately
+  as `float_pair_high_nibbles` / `float_pair_low_nibbles`.
+- shared-cofactor semantic reconstruction: class-split BLIF generation caches
+  residual BDDs across all outputs and all class values.  Duplicate residual
+  cofactors are emitted once, and complemented cofactors reuse the cached
+  signal through a single inverter.  This targets multi-output functions whose
+  outputs are not equal globally but share many local decision subfunctions.
+- shared multi-output decision graphs: semantic reconstruction also tries
+  global BDD candidates where all outputs share one decision-node cache under
+  several deterministic variable orders.  This is aimed at the
+  `ex280-ex299` unknown-function group described as class/rotation/split
+  structured in `introduction.html`.
 
 ### 2. Initial Structural Candidates
 
@@ -187,18 +209,74 @@ After structural candidates settle:
   reference-ratio threshold during experiments, using the same
   equivalence-gated area/type/objective/micro/GIA package that produced the
   current outputs (stage 17)
+- type-guided refinement distinguishes monotone-positive general logic from
+  true threshold/majority logic.  This is important for cases such as ex250
+  and ex286, where symmetry groups exist but the outputs are not simple
+  threshold functions; they now try a separate monotone delay/area flow
+  package.  Mixed constant-output cases such as ex252 use a constant-aware
+  flow family instead of the generic package.
+- exact signed multiplier reconstruction now includes a carry-save correction
+  template.  Instead of building an unsigned multiplier followed by two
+  ripple sign-correction subtractors, the sign-extension correction terms are
+  compressed together with the partial products.  This gives a distinct
+  low-delay Pareto seed for signed multiplier cases such as ex262-ex264.
+- factored SOP emission now preserves don't-care literals introduced during
+  recursive factoring.  This keeps front-end BLIF reconstruction faithful to
+  the intended cover before ABC cleanup and CEC selection.
+- class-split BLIFs now report `shared_cofactors`, `reused`, and
+  `complemented` in `student/logs/semantic_split_candidates.csv`, making the
+  front-end sharing effect auditable and reproducible.
 
-The pipeline runs **17 stages** in total.  Use `--show-reproduce-recipe` to
-print the full stage list with parameters.
+The core pipeline is followed by deterministic targeted cleanup stages in
+`reproduce_best.sh`.  Use `--show-reproduce-recipe` to print the core stage
+list with parameters.
 
-After the 17-stage pipeline, two additional stages run automatically:
+After the core pipeline, these additional stages run automatically:
 
-- **Stage 18** (`refine_close.py`): parallel ABC flow search
+- **Stage 18** (`flow_optimizer.py --semantic-split-optimize`): deterministic
+  semantic front-end reconstruction on representative float/arithmetic
+  bottlenecks.  It tries per-output hybrid BDDs, exponent/class split BLIF
+  structures, and paired-nibble field splits for 16-bit conversion/unknown
+  circuits.  It also tries global shared multi-output BDDs before the class
+  split candidates.  The wider `--semantic-max-splits 8` setting is intentional: it
+  allows the paired-field candidates to be reached after the classic
+  exponent/high-byte/low-byte candidates.  The `--semantic-max-flows 4`
+  setting includes the GIA cleanup pass, which is often the strongest cleanup
+  for shared-cofactor BLIFs.  All equivalent candidates are recorded in
+  `student/logs/semantic_split_candidates.csv`; only strict ADP decreases are
+  copied into `output/`.
+- **Stage 19** (`flow_optimizer.py --circuit-type-optimize`): deterministic
+  circuit-family refinement on the structurally ambiguous bottleneck set
+  (`ex223`, `ex225`, `ex250`, `ex252`, `ex262`, `ex263`, `ex264`, `ex286`,
+  `ex297`, `ex299`).  Each case is fingerprinted first, then optimized with
+  a family-specific mix of current-AIG polish flows and truth-table BDD seeds.
+  This stage records every accepted and rejected candidate in
+  `student/logs/circuit_type_optimize.csv`.
+- **Stage 20** (`refine_close.py`): parallel ABC flow search
   (`&resyn3rs`, `&sopb`, `resub -K N`, `dch+if`, `&compress2rs`, etc.)
   applied to every case above the reference ADP.  Each case iterates
-  until no flow yields a strictly lower verified ADP.
-- **Stage 19** (`reproduce_top3.sh`): re-seeds ex272/ex276/ex280 from
+  until no flow yields a strictly lower verified ADP.  Its temporary
+  directory is derived from Python's platform temp directory so the same
+  script works in both `/tmp`-based Unix shells and Windows Python setups.
+- **Stage 21** (`reproduce_top3.sh`): re-seeds ex272/ex276/ex280 from
   the current output and re-verifies the top-3 improvements.
+- **Stage 22** (`flow_optimizer.py --case ex295 --case-fair-next-optimize`):
+  targeted final cleanup for the newly verified ex295 improvement.  The
+  accepted candidate is produced by the objective-guided balanced/dchoice
+  package and kept only after equivalence and strict ADP checks.
+- **Stage 23** (`refine_close.py --cases ...`): targeted post-hoc cleanup for
+  the late verified improvements on `ex262`, `ex265`, `ex266`, `ex275`,
+  `ex277`, `ex278`, `ex284`, and `ex295`.  It reruns each case independently
+  to avoid cross-case file races and keeps only CEC-checked strict ADP
+  decreases.
+- **Stage 24** (`deep_area_opt.py`): area-first `&my_deepsyn` pass for
+  high-ratio cases.  It writes to `output/` only after strict verified ADP
+  improvement.
+- **Stage 25** (`refine_close.py --cases ex219 ex247 ex261`): cleanup after
+  the area-first pass exposes new local minima.
+- **Stage 26** (`specialized_semantic_generators.py --case ex261` plus
+  `refine_close.py --cases ex261`): decoded semantic probe and final ex261
+  cleanup.
 
 Stage 5 (`mockturtle_structural`) now includes `xag_xor_heavy` and
 `roundtrip_xag` for all cases with large area, high ADP, or high delay (≥18
@@ -212,18 +290,25 @@ The current submitted outputs have been checked with `evaluate.py`:
 
 ```text
 Equivalent cases: 100/100
-Total ADP over equivalent cases: 8911124
+Total ADP over equivalent cases: 8892765
 ```
 
-7 cases beat the reference result (ex276, ex272, ex280, ex231, ex287, ex207,
-ex227).  81 cases are within 1.5x of the reference ADP.
+The latest per-case comparison is written to
+`student/logs/current_results_with_reference_updated.csv`.
+`current_results_with_reference.csv` may be locked by spreadsheet/IDE preview
+tools on Windows; the updated copy under `student/logs/` is kept so result
+regeneration is still auditable.
+The reference comparison baseline remains at project root as
+`reference_result.csv`.
 
 | Case  | My ADP  | Ref ADP | Ratio  |
 |-------|--------:|--------:|-------:|
-| ex276 |     592 |     632 | 0.9367 |
+| ex276 |     576 |     632 | 0.9114 |
+| ex284 |   3,952 |   4,240 | 0.9321 |
+| ex265 |     308 |     322 | 0.9565 |
+| ex280 |   2,310 |   2,415 | 0.9565 |
 | ex272 |  10,507 |  10,880 | 0.9657 |
 | ex287 |   5,586 |   5,782 | 0.9661 |
-| ex280 |   2,338 |   2,415 | 0.9681 |
 | ex231 |  13,740 |  14,066 | 0.9768 |
 | ex207 | 614,916 | 627,817 | 0.9795 |
 | ex227 | 708,377 | 721,639 | 0.9816 |
@@ -240,21 +325,32 @@ student/reproduce_best.sh               single reproduction command
 student/flow_optimizer.py               deterministic optimization pipeline
 student/boolean_fingerprint.py          truth-table structure analysis
 student/exact_function_recognition.py   exact template detection
+student/deep_area_opt.py                verified high-ratio area-first cleanup
+student/specialized_semantic_generators.py
+                                         decoded semantic cleanup candidates
+student/refine_close.py                 post-hoc ABC flow refinement
+student/reproduce_top3.sh               top-3 seed verification
 student/mockturtle_opt/                 mockturtle structural resynthesis tool
-student/area_first_experiment.py        standalone area-first experiment script
-student/refine_close.py                 post-hoc ABC flow refinement (stage 18)
-student/reproduce_top3.sh               top-3 seed verification (stage 19)
 ```
 
 `student/optimizer.py` is retained only as the provided baseline; it is not
-called by the final reproduction command.  `student/area_first_experiment.py`
-is the standalone experiment script used to develop the area-first flows; its
-logic is incorporated into `flow_optimizer.py` stage 13 for reproducibility.
+called by the final reproduction command.
+
+Exploratory scripts are intentionally separated under:
+
+```text
+student/experiment/
+```
+
+Those scripts document failed probes and focused searches used during
+development, but the final reproduction command does not depend on them.
 Development history is documented separately in `student/OPTIMIZATION_LOG.md`.
 
 Report-ready logs are written under `student/logs/`, including:
 
 ```text
+current_results.csv
+current_results_with_reference_updated.csv
 results.csv
 summary.csv
 final_summary.csv

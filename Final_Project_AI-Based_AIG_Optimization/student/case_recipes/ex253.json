@@ -1,0 +1,31 @@
+{
+  "case": "ex253",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 122,
+      "delay": 18,
+      "adp": 2196,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "classification": {
+    "labels": "mixed_general_logic|constant_zero|symmetric_variable_groups",
+    "effective_support": "16",
+    "recommended_strategy": "abc_portfolio_general_random"
+  },
+  "initial_synthesis": {
+    "initial_method": "bdd_high_influence",
+    "flow_name": "llm_mix_2",
+    "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
+  },
+  "reference_adp": 1845,
+  "ratio_vs_reference": 1.1902,
+  "best": {
+    "area": 122,
+    "delay": 18,
+    "adp": 2196,
+    "date": "2026-06-12"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "case": "ex207",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 32364,
+      "delay": 19,
+      "adp": 614916,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "bdd_original",
+    "flow_name": "llm_mix_1",
+    "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance"
+  },
+  "reference_adp": 627817,
+  "ratio_vs_reference": 0.9795,
+  "best": {
+    "area": 32364,
+    "delay": 19,
+    "adp": 614916,
+    "date": "2026-06-12"
+  }
+}

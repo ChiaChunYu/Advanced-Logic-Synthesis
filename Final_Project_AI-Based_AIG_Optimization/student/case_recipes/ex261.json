@@ -1,0 +1,26 @@
+{
+  "case": "ex261",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 176,
+      "delay": 17,
+      "adp": 2992,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "existing_output",
+    "flow_name": "current",
+    "flow_commands": ""
+  },
+  "reference_adp": 2041,
+  "ratio_vs_reference": 1.4659,
+  "best": {
+    "area": 176,
+    "delay": 17,
+    "adp": 2992,
+    "date": "2026-06-12"
+  }
+}

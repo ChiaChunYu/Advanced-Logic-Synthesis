@@ -14,6 +14,13 @@ import math
 from dataclasses import dataclass
 from pathlib import Path
 
+from blif_builder import (
+    detect_signed_multiplier,
+    detect_unsigned_divider_quotient,
+    detect_unsigned_multiplier,
+    detect_unsigned_sqrt,
+    detect_unsigned_square,
+)
 from boolean_fingerprint import (
     TruthTable,
     anf_coefficients,
@@ -407,3 +414,130 @@ def format_exact_matches(rows: list[ExactFunctionMatch], limit: int = 40) -> str
     if len(rows) > limit:
         lines.append(f"- ... {len(rows) - limit} more")
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Template validation helpers (moved from flow_optimizer)
+# ---------------------------------------------------------------------------
+
+def truth_output_value(table: TruthTable, index: int) -> int:
+    value = 0
+    for output_index, bits in enumerate(table.outputs):
+        value |= bits[index] << output_index
+    return value
+
+
+def truth_input_value(index: int, num_inputs: int, order: list[int]) -> int:
+    value = 0
+    for bit_index, var in enumerate(order):
+        value |= bit_at(index, num_inputs, var) << bit_index
+    return value
+
+
+def _template_operand_mappings(num_inputs: int) -> list[tuple[str, list[int], list[int]]]:
+    """Simplified operand mappings used by match_binary_template (no support filtering)."""
+    if num_inputs % 2:
+        return []
+    half = num_inputs // 2
+    base = [
+        ("half", list(range(half)), list(range(half, num_inputs))),
+        ("even_odd", list(range(0, num_inputs, 2)), list(range(1, num_inputs, 2))),
+        ("odd_even", list(range(1, num_inputs, 2)), list(range(0, num_inputs, 2))),
+    ]
+    mappings: list[tuple[str, list[int], list[int]]] = []
+    seen: set[tuple[int, ...]] = set()
+    for prefix, left_group, right_group in base:
+        for left_name, left_order in (("le", left_group), ("be", list(reversed(left_group)))):
+            for right_name, right_order in (("le", right_group), ("be", list(reversed(right_group)))):
+                for swap_name, a_order, b_order in (
+                    ("ab", left_order, right_order),
+                    ("ba", right_order, left_order),
+                ):
+                    key = tuple(a_order + [-1] + b_order)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    mappings.append((f"{prefix}_{left_name}_{right_name}_{swap_name}", a_order[:], b_order[:]))
+    return mappings
+
+
+def match_binary_template(
+    table: TruthTable,
+    predicate,
+) -> tuple[str, list[int], list[int]] | None:
+    if table.num_inputs % 2:
+        return None
+    mask = (1 << table.num_outputs) - 1
+    for name, a_order, b_order in _template_operand_mappings(table.num_inputs):
+        matches = True
+        for index in range(table.num_minterms):
+            a_value = truth_input_value(index, table.num_inputs, a_order)
+            b_value = truth_input_value(index, table.num_inputs, b_order)
+            if truth_output_value(table, index) != (predicate(a_value, b_value, len(a_order)) & mask):
+                matches = False
+                break
+        if matches:
+            return name, a_order, b_order
+    return None
+
+
+def validate_template_case(case: str, table: TruthTable) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+
+    def add(template: str, mapping: str, detail: str) -> None:
+        rows.append({"case": case, "template": template, "matched": "1", "mapping": mapping, "detail": detail})
+
+    unsigned_mul = detect_unsigned_multiplier(table)
+    if unsigned_mul is not None:
+        add("unsigned_multiplier", "detector", f"a={unsigned_mul[0]};b={unsigned_mul[1]}")
+    signed_mul = detect_signed_multiplier(table)
+    if signed_mul is not None:
+        add("signed_multiplier", "detector", f"a={signed_mul[0]};b={signed_mul[1]}")
+    square = detect_unsigned_square(table)
+    if square is not None:
+        add("unsigned_square", "detector", f"x={square}")
+    divider = detect_unsigned_divider_quotient(table)
+    if divider is not None:
+        add("divider_quotient", "detector", f"divisor={divider[0]};dividend={divider[1]}")
+    sqrt_order = detect_unsigned_sqrt(table)
+    if sqrt_order is not None:
+        add("integer_sqrt", "detector", f"x={sqrt_order}")
+
+    if table.num_inputs % 2 == 0:
+        width = table.num_inputs // 2
+        out_mask = (1 << table.num_outputs) - 1
+        validators = [
+            ("adder_sum", lambda a, b, w: a + b),
+            ("adder_carry_mask", lambda a, b, w: out_mask if a + b >= (1 << w) else 0),
+            ("divider_remainder_sat", lambda a, b, w: out_mask if b == 0 else a % b),
+            ("comparator_eq_mask", lambda a, b, w: out_mask if a == b else 0),
+            ("comparator_lt_mask", lambda a, b, w: out_mask if a < b else 0),
+            ("comparator_le_mask", lambda a, b, w: out_mask if a <= b else 0),
+        ]
+        for template, fn in validators:
+            match = match_binary_template(table, fn)
+            if match is not None:
+                mapping, a_order, b_order = match
+                add(template, mapping, f"a={a_order};b={b_order}")
+    if not rows:
+        rows.append({"case": case, "template": "none", "matched": "0", "mapping": "", "detail": ""})
+    return rows
+
+
+def run_validate_templates(benchmarks: "Path", logs: "Path", all_cases: "list[str]") -> None:
+    import csv
+    from pathlib import Path
+    from blif_builder import read_truth
+    rows: list[dict[str, str]] = []
+    for case in all_cases:
+        table = read_truth(benchmarks / f"{case}.truth")
+        rows.extend(validate_template_case(case, table))
+    path = logs / "template_validation.csv"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.DictWriter(handle, fieldnames=["case", "template", "matched", "mapping", "detail"])
+        writer.writeheader()
+        writer.writerows(rows)
+    matched = [row for row in rows if row["matched"] == "1"]
+    print(f"[validate] wrote {path}")
+    print(f"[validate] matched template rows: {len(matched)}")

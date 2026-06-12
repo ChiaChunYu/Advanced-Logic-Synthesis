@@ -2579,3 +2579,121 @@ solutions (`ex286`, `ex252`) or large area-only bottlenecks (`ex299`, `ex297`,
 `ex225`, `ex223`, `ex224`, `ex295`).  The next structural direction should be
 multi-output shared-kernel extraction for cyclic/vector truth tables and a
 more aggressive area-only decomposition path that accepts larger delay.
+
+### Targeted ex295 case-fair cleanup
+
+- Continued the circuit-type/semantic exploration with an explicit goal of
+  finding a strict verified improvement over the current submitted outputs.
+- The broad shared-cofactor semantic split search produced smaller candidates
+  for `ex240`, `ex250`, and `ex252`, but none beat the current submitted AIGs.
+- A targeted `--case-fair-next-optimize` pass on `ex295` found a strict ADP
+  reduction through the objective-guided balanced/dchoice package.
+- Added this targeted pass as Stage 22 in `student/reproduce_best.sh`.
+
+Accepted reduction:
+
+```text
+ex295: 118335 -> 118290  (obj_balanced_dchoice)
+```
+
+Verified result after this update:
+
+```text
+Equivalent cases: 100/100
+Previous total ADP: 8,911,124
+Current total ADP:  8,911,079
+ADP reduction:             45
+```
+
+### Cyclic unknown-function reverse-engineering probes
+
+- Re-focused on the `introduction.html` direction for `ex280-ex299`: identify
+  the real circuit structure before adding more back-end command stacks.
+- Confirmed exact cyclic equivariance for the dominant unknown bottlenecks:
+  - `ex295`: even outputs are rotations of `y0`, odd outputs are rotations of
+    `y1` by two input-bit positions.
+  - `ex297`: same two-orbit cyclic structure.
+  - `ex299`: same two-orbit cyclic structure across all 16 outputs.
+- Added a global shared multi-output BDD candidate family so all outputs can
+  share one decision-node cache under deterministic rotation/byte/pair orders.
+  This made the structural hypothesis reproducible inside
+  `--semantic-split-optimize`.
+- Parallel probes ruled out several tempting but incorrect real-circuit
+  hypotheses:
+  - packed 2-bit sorting/ranking
+  - popcount/threshold or simple histogram counting
+  - GF(2) affine/CRC-style transform
+  - simple modular rotate/add/sub/Gray transforms
+  - linear threshold base functions
+  - small cyclic local-window rule
+  - reflection-symmetric cyclic rule
+- Current conclusion: `ex295/ex297/ex299` are best described as nonlinear
+  two-channel cyclic sequence transforms, likely LogicNets/decision-network
+  style rather than simple arithmetic.  The next plausible large improvement
+  path is a cyclic shared-kernel extractor, not per-output BDD replication.
+
+### Verified late post-hoc cleanup
+
+- Switched back to an experiment-first workflow: no README/log/reproduction
+  edits were made until `output/` actually improved under CEC.
+- Fixed a `refine_close.py` `SameFileError` corner case where a Pareto/deepsyn
+  candidate could already be the selected output path.  The fix only skips the
+  redundant copy when source and destination are the same file.
+- Re-ran `refine_close.py` in independent single-case mode for the cases that
+  showed verified improvement candidates, avoiding same-case output races.
+- Added Stage 23 to `student/reproduce_best.sh` to reproduce these late
+  improvements deterministically.
+
+Accepted reductions:
+
+```text
+ex262:   9455 ->   8556
+ex265:    343 ->    308
+ex266:   1125 ->    963
+ex275:    222 ->    216
+ex277:   2616 ->   2365
+ex278:   6812 ->   6266
+ex284:   4860 ->   3952
+ex295: 118290 -> 116685
+```
+
+Verified result after this update:
+
+```text
+Equivalent cases: 100/100
+Previous total ADP: 8,911,079
+Current total ADP:  8,906,667
+ADP reduction:          4,412
+```
+
+### Guarded high-ratio massive batch
+
+- Re-ran the high-ratio guarded batch after code organization, targeting:
+  `ex286`, `ex252`, `ex297`, `ex250`, `ex299`, `ex264`, `ex263`, `ex240`,
+  `ex225`, `ex262`, `ex248`, `ex295`, `ex223`, `ex224`, `ex247`, and
+  `ex246`.
+- Each case was backed up first, then refined by `refine_close`,
+  area-first, objective-guided, micro-guided, and GIA canonical convergence
+  passes.
+- All candidates were still CEC-gated and accepted only on strict ADP
+  reduction.
+- The generic guarded batch has now saturated for the remaining high-ratio
+  cases.  The next large-improvement path is specialized semantic or
+  architecture reconstruction: FP conversion/log seeds, signed multiplier
+  architecture, and cyclic shared-kernel extraction for the unknown vector
+  cases.
+
+Accepted reduction:
+
+```text
+ex295: 115920 -> 115875
+```
+
+Verified result after this update:
+
+```text
+Equivalent cases: 100/100
+Previous total ADP: 8,892,810
+Current total ADP:  8,892,765
+ADP reduction:             45
+```

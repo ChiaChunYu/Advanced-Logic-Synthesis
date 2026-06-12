@@ -1,0 +1,26 @@
+{
+  "case": "ex212",
+  "history": [
+    {
+      "date": "2026-06-12",
+      "area": 282,
+      "delay": 9,
+      "adp": 2538,
+      "prev_adp": null
+    }
+  ],
+  "notes": "",
+  "initial_synthesis": {
+    "initial_method": "bdd_original",
+    "flow_name": "adp_balanced",
+    "flow_commands": "rewrite; refactor; dc2; rewrite -z; refactor -z; balance"
+  },
+  "reference_adp": 2304,
+  "ratio_vs_reference": 1.1016,
+  "best": {
+    "area": 282,
+    "delay": 9,
+    "adp": 2538,
+    "date": "2026-06-12"
+  }
+}
