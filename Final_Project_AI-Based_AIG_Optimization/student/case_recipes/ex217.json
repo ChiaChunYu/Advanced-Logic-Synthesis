@@ -16,7 +16,7 @@
       "prev_adp": 8172
     }
   ],
-  "notes": "",
+  "notes": "bf16 cube-root-like x^(1/k) (in 1->1, 2->1.258, 4->1.586), unconfirmed. Current 6,720 (mockturtle-improved).",
   "initial_synthesis": {
     "initial_method": "bdd_low_influence",
     "flow_name": "ga_01",

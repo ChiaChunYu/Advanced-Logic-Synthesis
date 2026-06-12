@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "bf16 tanh(x). Sigmoid family (exp + divide) -> deep RTL. Current ~8.5K.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "ga_01",

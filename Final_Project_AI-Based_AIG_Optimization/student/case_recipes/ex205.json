@@ -23,7 +23,7 @@
       "prev_adp": 68901
     }
   ],
-  "notes": "",
+  "notes": "bf16 log10(x) = log2(x) * log10(2). Current ~69K (1.46x).",
   "initial_synthesis": {
     "initial_method": "bdd_high_influence",
     "flow_name": "ga_01",

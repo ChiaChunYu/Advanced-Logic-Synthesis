@@ -23,7 +23,7 @@
       "prev_adp": 22022
     }
   ],
-  "notes": "",
+  "notes": "bf16 log2(x). Same LUT+normalize shape as ex224 fp16 log2 (deepsyn floored above the BDD result), so RTL likely will not win. Current ~22K.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_2",

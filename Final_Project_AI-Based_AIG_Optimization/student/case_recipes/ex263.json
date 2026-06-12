@@ -14,6 +14,13 @@
       "delay": 28,
       "adp": 9772,
       "prev_adp": 13659
+    },
+    {
+      "date": "2026-06-13",
+      "area": 382,
+      "delay": 24,
+      "adp": 9168,
+      "prev_adp": 9772
     }
   ],
   "notes": "signed 7x7 -> 14 multiplier. RTL + deepsyn: 13659 -> 9772. Verified.",
@@ -23,11 +30,11 @@
     "flow_commands": ""
   },
   "reference_adp": 6840,
-  "ratio_vs_reference": 1.4287,
+  "ratio_vs_reference": 1.3404,
   "best": {
-    "area": 349,
-    "delay": 28,
-    "adp": 9772,
+    "area": 382,
+    "delay": 24,
+    "adp": 9168,
     "date": "2026-06-13"
   }
 }

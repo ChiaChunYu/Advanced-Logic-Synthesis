@@ -14,6 +14,13 @@
       "delay": 45,
       "adp": 15210,
       "prev_adp": 27863
+    },
+    {
+      "date": "2026-06-13",
+      "area": 397,
+      "delay": 35,
+      "adp": 13895,
+      "prev_adp": 15210
     }
   ],
   "notes": "fp8 e4m3 ADD (subnormals on, RNE, saturate, NaN=0x7F). Operand A={x15..x8}, B={x7..x0}. Semantic RTL via student/fp8_synth.py beats structural: 27863 -> 15210. Verified bit-exact (65536 rows) + ABC CEC.",
@@ -28,11 +35,11 @@
     "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance"
   },
   "reference_adp": 13299,
-  "ratio_vs_reference": 1.1437,
+  "ratio_vs_reference": 1.0448,
   "best": {
-    "area": 338,
-    "delay": 45,
-    "adp": 15210,
+    "area": 397,
+    "delay": 35,
+    "adp": 13895,
     "date": "2026-06-13"
   }
 }

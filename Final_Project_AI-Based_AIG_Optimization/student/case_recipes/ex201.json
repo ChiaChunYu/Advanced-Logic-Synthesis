@@ -16,7 +16,7 @@
       "prev_adp": 21931
     }
   ],
-  "notes": "",
+  "notes": "bf16 exp2(x)=2^x. Semantics BIT-EXACT confirmed (FTZ on tiny results). But exp2 still needs a variable shift to align the bf16 input x to fixed point before splitting int/frac, so the RTL path is as deep as log -> would not beat the structural AIG. NOT pursued. Current ~22K (1.34x).",
   "initial_synthesis": {
     "initial_method": "bdd_balanced_shannon",
     "flow_name": "llm_mix_2",
