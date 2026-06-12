@@ -192,8 +192,9 @@ def optimize_one(case: str, strategies: list[str], **kw) -> dict:
 
 
 def _select_cases(args) -> list[str]:
-    if args.case:
-        return args.case
+    explicit = list(args.case or []) + list(args.cases or [])
+    if explicit:
+        return explicit
     cases = [c for c in ALL_CASES if (OUTPUT / f"{c}.aig").is_file()]
     if args.above_ratio is not None:
         import csv
@@ -211,7 +212,9 @@ def _select_cases(args) -> list[str]:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--case", action="append", help="case(s) to optimize")
+    ap.add_argument("--case", action="append", help="case to optimize (repeatable)")
+    ap.add_argument("--cases", nargs="+", default=None,
+                    help="space-separated list of cases to optimize")
     ap.add_argument("--all", action="store_true", help="optimize all 100 cases")
     ap.add_argument("--above-ratio", type=float, default=None,
                     help="only cases with ADP/reference >= this ratio")
@@ -225,8 +228,8 @@ def main() -> int:
                     help="skip recipe_store refresh at the end")
     args = ap.parse_args()
 
-    if not args.case and not args.all and args.above_ratio is None:
-        ap.error("specify --case, --all, or --above-ratio")
+    if not args.case and not args.cases and not args.all and args.above_ratio is None:
+        ap.error("specify --case, --cases, --all, or --above-ratio")
 
     cases = _select_cases(args)
     if not cases:
