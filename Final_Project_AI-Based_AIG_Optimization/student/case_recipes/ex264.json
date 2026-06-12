@@ -7,20 +7,34 @@
       "delay": 38,
       "adp": 21090,
       "prev_adp": null
+    },
+    {
+      "date": "2026-06-13",
+      "area": 481,
+      "delay": 32,
+      "adp": 15392,
+      "prev_adp": 21090
+    },
+    {
+      "date": "2026-06-13",
+      "area": 487,
+      "delay": 31,
+      "adp": 15097,
+      "prev_adp": 15392
     }
   ],
-  "notes": "",
+  "notes": "signed 8x8 -> 16 multiplier. RTL + deepsyn: 21090 -> 15097. Verified.",
   "initial_synthesis": {
     "initial_method": "existing_output",
     "flow_name": "current",
     "flow_commands": ""
   },
   "reference_adp": 9724,
-  "ratio_vs_reference": 2.1689,
+  "ratio_vs_reference": 1.5526,
   "best": {
-    "area": 555,
-    "delay": 38,
-    "adp": 21090,
-    "date": "2026-06-12"
+    "area": 487,
+    "delay": 31,
+    "adp": 15097,
+    "date": "2026-06-13"
   }
 }

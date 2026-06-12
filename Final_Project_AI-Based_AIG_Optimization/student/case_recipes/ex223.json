@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "fp16 ln(x). CRACKED but library math differs by ~1 ULP so not yet bit-exact RTL. ln(0)=-inf, ln(1)=0, ln(neg)=NaN. DAZ.",
   "classification": {
     "labels": "mux_like",
     "effective_support": "16",
@@ -26,6 +26,6 @@
     "area": 10730,
     "delay": 19,
     "adp": 203870,
-    "date": "2026-06-12"
+    "date": "2026-06-13"
   }
 }

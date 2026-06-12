@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "fp16 log10(x) = log2(x)*log10(2). ~5 ULP library diff, not bit-exact yet.",
   "classification": {
     "labels": "mux_like",
     "effective_support": "16",
@@ -26,6 +26,6 @@
     "area": 11302,
     "delay": 18,
     "adp": 203436,
-    "date": "2026-06-12"
+    "date": "2026-06-13"
   }
 }

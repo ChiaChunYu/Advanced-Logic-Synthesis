@@ -103,10 +103,12 @@ flow_opt --case ex295 --area-first-refine --timeout-per-case 180
 flow_opt --case ex295 --objective-guided-refine --objective-max-per-family 5
 abc_refine --cases ex295 --case-workers 1
 
-# ── Block C: fp8 semantic reconstruction (was stage 29) ──────────────────────
-echo "=== Block C: fp8 word-level reconstruction (was stage 29) ==="
+# ── Block C: word-level semantic reconstruction (fp8 + signed multipliers) ───
+echo "=== Block C: word-level semantic reconstruction ==="
 echo "[C1] fp8 RTL (ex240 e4m3 add, ex241 e4m3 mul, ex245 e5m2 add)"
 python3 student/fp8_synth.py
+echo "[C2] signed multiplier RTL (ex262 6x6, ex263 7x7, ex264 8x8)"
+python3 student/mult_synth.py
 
 # ── Block D: evaluate, verify no regression, refresh per-case records ────────
 echo "=== Block D: evaluate + verify + record ==="

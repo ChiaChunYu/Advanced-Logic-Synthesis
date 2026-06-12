@@ -7,9 +7,16 @@
       "delay": 31,
       "adp": 8556,
       "prev_adp": null
+    },
+    {
+      "date": "2026-06-13",
+      "area": 246,
+      "delay": 22,
+      "adp": 5412,
+      "prev_adp": 8556
     }
   ],
-  "notes": "",
+  "notes": "signed 6x6 -> 12 multiplier (A=high 6 input bits, B=low 6). RTL in mult_synth.py: 8556 -> 5412. Verified bit-exact + CEC.",
   "classification": {
     "labels": "mixed_general_logic|mux_like|symmetric|exact_k|cube_decoder_like|npn_at-least-2",
     "effective_support": "12",
@@ -21,11 +28,11 @@
     "flow_commands": ""
   },
   "reference_adp": 4900,
-  "ratio_vs_reference": 1.7461,
+  "ratio_vs_reference": 1.1045,
   "best": {
-    "area": 276,
-    "delay": 31,
-    "adp": 8556,
-    "date": "2026-06-12"
+    "area": 246,
+    "delay": 22,
+    "adp": 5412,
+    "date": "2026-06-13"
   }
 }

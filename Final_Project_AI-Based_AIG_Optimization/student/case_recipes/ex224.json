@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "fp16 log2(x). BIT-EXACT with 24-bit fixed-point datapath (e-15 + LUT[m]). DAZ (subnormal->-inf), neg->NaN, +inf->+inf. RTL in fp16_synth.py (WIP - 9 mantissa-overflow edge cases to fix).",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_2",
@@ -21,6 +21,6 @@
     "area": 6094,
     "delay": 17,
     "adp": 103598,
-    "date": "2026-06-12"
+    "date": "2026-06-13"
   }
 }
