@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "13in/13out. 2233 distinct outputs. NOT monotone (in=1->64, in=2->32, in=4->512). Single-bit inputs give single-bit-ish outputs (in=1->2^6, in=2->2^5, in=4->2^9) suggesting permutation/linear-ish, but full affine GF(2) test FAILS (8130/8192 mismatch). No obvious arithmetic. TA best-area=264 vs ours much larger (ratio 5.99x, ref 2376). Hardest case. Likely needs LLM-style truth-table reverse engineering or decision-graph decomposition (per TA HTML). TRIED+FAILED: affine/XOR model, monotonicity.",
   "classification": {
     "labels": "general_random|monotone_positive_general|symmetric_variable_groups",
     "effective_support": "13",

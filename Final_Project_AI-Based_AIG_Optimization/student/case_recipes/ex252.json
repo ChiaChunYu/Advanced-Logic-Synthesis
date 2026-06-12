@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "16in/8out. Only 26 distinct output bytes (range 0x00-0x51, all positive e4m3-like). SYMMETRIC in A,B (out[a,b]==out[b,a]). A=0 -> output 0 (multiplicative zero). BUT diagonal a=b is non-monotone/non-smooth (0.0156->1.0, 2.0->0.25, 8->0.5) so NOT a*b/a+b/sqrt/hypot in e4m3 (all >95% mismatch). fingerprint=mixed_general_logic|constant_zero. TA best-area=120 ANDs vs our 745 (6x). Likely a table/decision-graph encoding, semantics not yet cracked. TRIED+FAILED: e4m3 mul/add/sqrt/hypot.",
   "classification": {
     "labels": "mixed_general_logic|constant_zero|constant_output_mixed",
     "effective_support": "16",
