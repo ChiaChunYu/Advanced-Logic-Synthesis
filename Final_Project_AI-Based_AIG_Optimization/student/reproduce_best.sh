@@ -34,6 +34,11 @@ if [[ ! -x student/mockturtle_opt/mockturtle_opt ]]; then
   cmake --build student/mockturtle_opt/build --target mockturtle_opt -j2
 fi
 
+# ════════════════════════════════════════════════════════════════════════════
+# CORE PIPELINE — truth-table synthesis through full structural convergence.
+# (flow_optimizer.py internal stages 1-17; see --show-reproduce-recipe.)
+# ════════════════════════════════════════════════════════════════════════════
+echo "=== Core pipeline: hybrid synthesis + structural convergence ==="
 python3 student/flow_optimizer.py \
   --reproduce-best \
   --mockturtle-max-modes 4 \
@@ -42,128 +47,69 @@ python3 student/flow_optimizer.py \
   --output output \
   --logs student/logs
 
-# Stage 18: semantic front-end split reconstruction for representative float/arithmetic bottlenecks
-echo "Stage 18: semantic_split_optimize - exponent/field-pair/class split front-end reconstruction"
+abc_refine() {  # refine_close.py with the standard --workers/--max-ratio tail
+  python3 student/refine_close.py "$@" --workers 4 --max-ratio 99
+}
+
+flow_opt() {    # flow_optimizer.py single-case helper with the standard paths
+  python3 student/flow_optimizer.py \
+    --abc student/abc --benchmarks benchmarks --output output --logs student/logs "$@"
+}
+
+# The post-core stages below run in their original, validated execution order.
+# They are only grouped and commented here for clarity — every command is
+# identical to the historical Stage 18-29 sequence.
+
+# ── Block A: semantic / family front-end reconstruction ─────────────────────
+echo "=== Block A: semantic front-end reconstruction (was stage 18-19) ==="
+
+echo "[A1] semantic split reconstruction (exponent / field-pair / class split)"
 for case in ex200 ex201 ex202 ex203 ex220 ex240 ex250 ex252 ex262 ex263 ex264 ex286 ex297 ex298 ex299; do
-  python3 student/flow_optimizer.py \
-    --semantic-split-optimize \
-    --case "${case}" \
-    --semantic-max-splits 8 \
-    --semantic-max-flows 4 \
-    --timeout-per-case 300 \
-    --abc student/abc \
-    --benchmarks benchmarks \
-    --output output \
-    --logs student/logs
+  flow_opt --semantic-split-optimize --case "${case}" \
+    --semantic-max-splits 8 --semantic-max-flows 4 --timeout-per-case 300
 done
 
-# Stage 19: circuit-family specific refinement for structurally ambiguous cases
-echo "Stage 19: circuit_type_optimize - family-specific truth-seed and polish search"
+echo "[A2] circuit-family refinement (truth-seed + polish for ambiguous cases)"
 for case in ex223 ex225 ex250 ex252 ex262 ex263 ex264 ex286 ex297 ex299; do
-  python3 student/flow_optimizer.py \
-    --circuit-type-optimize \
-    --case "${case}" \
-    --circuit-type-max-flows 8 \
-    --circuit-type-max-seeds 3 \
-    --timeout-per-case 180 \
-    --abc student/abc \
-    --benchmarks benchmarks \
-    --output output \
-    --logs student/logs
+  flow_opt --circuit-type-optimize --case "${case}" \
+    --circuit-type-max-flows 8 --circuit-type-max-seeds 3 --timeout-per-case 180
 done
 
-# Stage 20: post-hoc ABC flow refinement for all cases above reference ADP
-echo "Stage 20: refine_close - ABC flow search on all cases above reference"
-python3 student/refine_close.py \
-  --case-workers 8 \
-  --workers 4 \
-  --max-ratio 99
+# ── Block B: back-end flow refinement (equivalence-gated, ADP-only) ──────────
+echo "=== Block B: back-end flow refinement (was stage 20-28) ==="
 
-# Stage 21: ex262 cleanup (only case that improved in post-hoc refine)
-echo "Stage 21: targeted refine_close for ex262"
-python3 student/refine_close.py \
-  --cases ex262 \
-  --case-workers 1 \
-  --workers 4 \
-  --max-ratio 99
+echo "[B1] global refine_close over all above-reference cases"
+abc_refine --case-workers 8
 
-# Stage 24: area-first deepsyn pass for cases still above 1.5x reference
-echo "Stage 24: deep_area_opt - area-first pass for high-ratio cases"
+echo "[B2] cleanup of the case improved by the global sweep (ex262)"
+abc_refine --cases ex262 --case-workers 1
+
+echo "[B3] area-first &my_deepsyn pass for high-ratio cases"
 python3 student/advanced_synthesis.py --mode deepsyn
 
-# Stage 25: cleanup after area-first pass for newly exposed wins
-echo "Stage 25: targeted refine_close cleanup after area-first pass"
+echo "[B4] cleanup after the area-first pass (ex219 ex247 ex261)"
 for case in ex219 ex247 ex261; do
-  python3 student/refine_close.py \
-    --cases "${case}" \
-    --case-workers 1 \
-    --workers 4 \
-    --max-ratio 99
+  abc_refine --cases "${case}" --case-workers 1
 done
 
-# Stage 26: decoded semantic probes and ex261 final cleanup
-echo "Stage 26: specialized semantic generators and ex261 final cleanup"
+echo "[B5] decoded semantic probe + ex261 cleanup"
 python3 student/advanced_synthesis.py --mode semantic --case ex261
-python3 student/refine_close.py \
-  --cases ex261 \
-  --case-workers 1 \
-  --workers 4 \
-  --max-ratio 99
+abc_refine --cases ex261 --case-workers 1
 
-# Stage 27: verified ex295 Pareto cleanup found after code organization
-echo "Stage 27: ex295 area-Pareto cleanup"
-python3 student/flow_optimizer.py \
-  --case ex295 \
-  --pareto-area-structural \
-  --pareto-area-seconds 180 \
-  --abc student/abc \
-  --benchmarks benchmarks \
-  --output output \
-  --logs student/logs
+echo "[B6] ex295 guarded cleanup tail (Pareto -> refine -> area-first -> objective)"
+flow_opt --case ex295 --pareto-area-structural --pareto-area-seconds 180
+abc_refine --cases ex295 --case-workers 1
+flow_opt --case ex295 --area-first-refine --timeout-per-case 180
+flow_opt --case ex295 --objective-guided-refine --objective-max-per-family 5
+abc_refine --cases ex295 --case-workers 1
 
-# Stage 28: ex295 guarded massive cleanup tail
-echo "Stage 28: ex295 refine/area/objective cleanup"
-python3 student/refine_close.py \
-  --cases ex295 \
-  --case-workers 1 \
-  --workers 4 \
-  --max-ratio 99
-python3 student/flow_optimizer.py \
-  --case ex295 \
-  --area-first-refine \
-  --timeout-per-case 180 \
-  --abc student/abc \
-  --benchmarks benchmarks \
-  --output output \
-  --logs student/logs
-python3 student/flow_optimizer.py \
-  --case ex295 \
-  --objective-guided-refine \
-  --objective-max-per-family 5 \
-  --abc student/abc \
-  --benchmarks benchmarks \
-  --output output \
-  --logs student/logs
-python3 student/refine_close.py \
-  --cases ex295 \
-  --case-workers 1 \
-  --workers 4 \
-  --max-ratio 99
-
-# Stage 29: semantic word-level reconstruction for identified fp8 cases
-# (ex240 = fp8 e4m3 add, ex241 = fp8 e4m3 mul). Emits exact RTL, synthesizes
-# via Yosys + ABC + &my_deepsyn, and adopts only on strict ADP improvement.
-echo "Stage 29: fp8_synth - semantic word-level reconstruction"
+# ── Block C: fp8 semantic reconstruction (was stage 29) ──────────────────────
+echo "=== Block C: fp8 word-level reconstruction (was stage 29) ==="
+echo "[C1] fp8 RTL (ex240 e4m3 add, ex241 e4m3 mul, ex245 e5m2 add)"
 python3 student/fp8_synth.py
 
-python3 evaluate.py \
-  --abc student/abc \
-  --benchmarks benchmarks \
-  --output output
-
-# Final: verify nothing regressed versus the recorded best results
-echo "Final verification: output/ vs best_output/"
+# ── Block D: evaluate, verify no regression, refresh per-case records ────────
+echo "=== Block D: evaluate + verify + record ==="
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
 python3 student/verify_reproduce.py
-
-# Refresh per-case optimization recipes (student/case_recipes/)
 python3 student/recipe_store.py --refresh

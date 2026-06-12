@@ -45,11 +45,15 @@ LOGS       = ROOT / "student" / "logs"
 IDENTIFIED: dict[str, tuple[str, str]] = {
     "ex240": ("add", "e4m3"),
     "ex241": ("mul", "e4m3"),
+    "ex245": ("add", "e5m2"),
 }
 
-# Bit-exact but not adopted (RTL larger than current). For experiments only.
+# Bit-exact but not adopted (RTL larger than current structural AIG). The mul
+# results occupy a small dynamic range so the structural AIG is already tiny.
+# Kept verifiable via --case but excluded from the pipeline to save time.
 IDENTIFIED_NONWINNING: dict[str, tuple[str, str]] = {
     "ex242": ("div_ba", "e4m3"),
+    "ex246": ("mul", "e5m2"),
 }
 
 # ---------------------------------------------------------------------------
@@ -324,10 +328,181 @@ def verilog_fp8_div_ba_e4m3() -> str:
     return _VERILOG_HEADER + body + _VERILOG_FOOTER
 
 
+# ---------------------------------------------------------------------------
+# e5m2 (no-inf): 1s/5e/2m, bias 15.  This variant has NO infinities — only
+# 0x7f and 0xff are NaN; 0x7c/0x7d/0x7e decode as ordinary finite numbers.
+# Any NaN operand -> canonical 0x7f.  Overflow saturates to ±0x7e.  RNE.
+# Confirmed bit-exact: ex245 = add, ex246 = mul.
+# ---------------------------------------------------------------------------
+
+# Shared RNE rounder for e5m2.  Input: {sig3 (hidden at bit2), g, r, s} plus a
+# signed exponent.  Output: 7-bit magnitude {e[4:0], m[1:0]}, saturating to the
+# 0x7e magnitude (e=31, m=2) since 0x7f is reserved for NaN.
+_E5M2_RNE_FUNC = """\
+  function [6:0] rne7;
+    input [2:0] sig3;        // {hidden, m1, m0}
+    input g, r, s_in;
+    input signed [6:0] e_in;
+    reg sticky, rb;
+    reg [3:0] sig_r;
+    reg signed [6:0] e;
+    begin
+      e = e_in;
+      sticky = r | s_in;
+      rb = g & (sticky | sig3[0]);
+      sig_r = {1'b0, sig3} + {3'b0, rb};
+      if (sig_r[3]) begin
+        sig_r = sig_r >> 1;
+        e = e + 1;
+      end
+      if (sig_r[2]) begin               // normal (hidden bit set)
+        if (e > 31 || (e == 31 && sig_r[1:0] == 2'd3))
+          rne7 = {5'd31, 2'd2};         // saturate to 0x7e (NaN-free max)
+        else
+          rne7 = {e[4:0], sig_r[1:0]};
+      end else begin
+        rne7 = {5'd0, sig_r[1:0]};      // subnormal (e field 0)
+      end
+    end
+  endfunction
+"""
+
+_E5M2_DECODE = """\
+  wire sa = A[7]; wire [4:0] ea = A[6:2]; wire [1:0] ma = A[1:0];
+  wire sb = B[7]; wire [4:0] eb = B[6:2]; wire [1:0] mb = B[1:0];
+  wire nan_a = (A[6:0] == 7'h7f);
+  wire nan_b = (B[6:0] == 7'h7f);
+  wire nan_in = nan_a | nan_b;
+  wire [2:0] siga = (ea == 0) ? {1'b0, ma} : {1'b1, ma};
+  wire [2:0] sigb = (eb == 0) ? {1'b0, mb} : {1'b1, mb};
+  wire [4:0] eaeff = (ea == 0) ? 5'd1 : ea;
+  wire [4:0] ebeff = (eb == 0) ? 5'd1 : eb;
+"""
+
+
+def verilog_fp8_add_e5m2() -> str:
+    body = _E5M2_DECODE + """\
+  // align by magnitude (7-bit field compare is magnitude-monotone)
+  wire swap = (B[6:0] > A[6:0]);
+  wire sx = swap ? sb : sa;
+  wire [4:0] ex0 = swap ? ebeff : eaeff;
+  wire [2:0] sigx = swap ? sigb : siga;
+  wire [4:0] ey = swap ? eaeff : ebeff;
+  wire [2:0] sigy = swap ? siga : sigb;
+  wire [5:0] d = ex0 - ey;
+
+  wire [4:0] ywide = {sigy, 2'b00};
+  wire [4:0] ysh = (d == 0) ? ywide : (d <= 5'd4) ? (ywide >> d) : 5'd0;
+  wire ysticky = (d == 0) ? 1'b0 :
+                 (d <= 5'd4) ? |(ywide & ~(5'h1F << d)) : |sigy;
+  wire [4:0] xwide = {sigx, 2'b00};
+  wire sub = sa ^ sb;
+
+  reg [5:0] msum;
+  reg sticky_in;
+  reg signed [6:0] e;
+  reg [2:0] sig3;
+  reg g, r2;
+  reg zero;
+  integer i;
+  always @* begin
+    e = {2'b0, ex0};
+    sticky_in = 0;
+    zero = 0;
+    if (sub) begin
+      msum = {1'b0, xwide} - {1'b0, ysh};
+      if (ysticky) begin
+        msum = msum - 6'd1;
+        sticky_in = 1;
+      end
+      if (msum == 0 && !sticky_in) zero = 1;
+    end else begin
+      msum = {1'b0, xwide} + {1'b0, ysh};
+      sticky_in = ysticky;
+      if (msum[5]) begin
+        sticky_in = sticky_in | msum[0];
+        msum = msum >> 1;
+        e = e + 1;
+      end
+    end
+    for (i = 0; i < 5; i = i + 1) begin
+      if (!msum[4] && e > 1 && msum != 0) begin
+        msum = msum << 1;
+        e = e - 1;
+      end
+    end
+    sig3 = msum[4:2];
+    g = msum[1];
+    r2 = msum[0];
+  end
+  wire szero = sa & sb;
+  wire [6:0] em = rne7(sig3, g, r2, sticky_in, e);
+  wire [7:0] R = nan_in ? 8'h7F :
+                 zero   ? {szero, 7'b0} :
+                 (msum == 0 && !sticky_in) ? {szero, 7'b0} :
+                 {sx, em};
+""" + _E5M2_RNE_FUNC
+    return _VERILOG_HEADER + body + _VERILOG_FOOTER
+
+
+def verilog_fp8_mul_e5m2() -> str:
+    body = _E5M2_DECODE + """\
+  wire sout = sa ^ sb;
+  wire zero = (siga == 0) || (sigb == 0);
+
+  reg [5:0] prod;
+  reg signed [6:0] e;
+  reg sticky;
+  reg [2:0] sig3;
+  reg g, r2, s_b;
+  reg [4:0] sh;
+  reg [5:0] wide;
+  reg sticky2;
+  integer i;
+  always @* begin
+    prod = siga * sigb;                 // 3x3 -> up to 6 bits
+    e = $signed({2'b0, eaeff}) + $signed({2'b0, ebeff}) - 7'sd15;
+    sticky = 0;
+    if (prod[5]) begin
+      sticky = prod[0];
+      prod = prod >> 1;
+      e = e + 1;
+    end
+    for (i = 0; i < 6; i = i + 1) begin // normalize hidden to bit4
+      if (!prod[4] && e > -7'sd16) begin
+        prod = prod << 1;
+        e = e - 1;
+      end
+    end
+    if (e >= 1) begin
+      sig3 = prod[4:2];
+      g = prod[1];
+      r2 = prod[0];
+      s_b = sticky;
+      sh = 0; wide = 0; sticky2 = 0;
+    end else begin
+      sh = 5'd1 - e[4:0];
+      sticky2 = sticky | |(prod & ~(6'h3F << sh));
+      wide = prod >> sh;
+      sig3 = wide[4:2];
+      g = wide[1];
+      r2 = wide[0];
+      s_b = sticky2;
+    end
+  end
+  wire signed [6:0] e_rnd = (e >= 1) ? e : 7'sd1;
+  wire [6:0] em = rne7(sig3, g, r2, s_b, e_rnd);
+  wire [7:0] R = nan_in ? 8'h7F : (zero ? {sout, 7'b0} : {sout, em});
+""" + _E5M2_RNE_FUNC
+    return _VERILOG_HEADER + body + _VERILOG_FOOTER
+
+
 GENERATORS = {
     ("add", "e4m3"): verilog_fp8_add_e4m3,
     ("mul", "e4m3"): verilog_fp8_mul_e4m3,
     ("div_ba", "e4m3"): verilog_fp8_div_ba_e4m3,
+    ("add", "e5m2"): verilog_fp8_add_e5m2,
+    ("mul", "e5m2"): verilog_fp8_mul_e5m2,
 }
 
 ABC_FLOWS = [

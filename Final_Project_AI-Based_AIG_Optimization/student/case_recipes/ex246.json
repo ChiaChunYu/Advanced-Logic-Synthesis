@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "e5m2 MUL (no-inf), bit-exact (check_e5m2.py) but RTL synthesizes larger than current tiny structural AIG (4563); NOT adopted. Generator kept in fp8_synth.py GENERATORS.",
   "classification": {
     "labels": "mixed_general_logic|mux_like|symmetric_variable_groups",
     "effective_support": "16",
@@ -26,6 +26,6 @@
     "area": 351,
     "delay": 13,
     "adp": 4563,
-    "date": "2026-06-12"
+    "date": "2026-06-13"
   }
 }
