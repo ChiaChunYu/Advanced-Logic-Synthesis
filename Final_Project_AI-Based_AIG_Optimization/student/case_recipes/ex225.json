@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "fp16 log10(x) = log2(x)*log10(2). ~5 ULP library diff, not bit-exact yet.",
+  "notes": "fp16 log10(x) = log2(x)*log10(2). ~5 ULP library diff, not bit-exact yet. POLY: polynomial approximation of log2(1+f) also fails bit-exactness (degree-6 still 36/65536 mismatch, last-ULP rounding) AND needs 6 mults (not shallower than LUT). So neither LUT-RTL nor poly-RTL beats the structural AIG. This fp16-log group is at its floor for our methods.",
   "classification": {
     "labels": "mux_like",
     "effective_support": "16",

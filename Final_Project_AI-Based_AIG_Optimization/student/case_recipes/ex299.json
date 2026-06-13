@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "16/16, distinct=24485. DEEP ANALYSIS: single-bit inputs are IDENTITY (bit_k->1<<k, out[0]=0) but ANY 2-bit combo explodes nonlinearly (in=3->0x6d83, in=6->0x555d) while cross-byte single bits stay identity (in=0x101->0x101). NOT affine GF(2), NOT separable hi/lo, NOT x*x/gray/x*3/popcount. Highly nonlinear + non-separable = S-box/hash/crypto-like, not arithmetic. Largest gap (1.23M = 60% of total deficit) but uncrackable by generic function-guessing/DSD/linear analysis. Needs domain-specific reverse engineering.",
+  "notes": "16/16 crypto s_box-family (IWLS category confirmed). single-bit identity + full diffusion + nonlinear. NOT GF(2^16) inverse, NOT AES sbox (parallel or composed), NOT plain arithmetic. Sibling of ex297 (14/14). Gap 1.23M = 60% of total deficit. The single biggest prize but needs the exact crypto construction to write RTL.",
   "classification": {
     "labels": "general_random",
     "effective_support": "16",

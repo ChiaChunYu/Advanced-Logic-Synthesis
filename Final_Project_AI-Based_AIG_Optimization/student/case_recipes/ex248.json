@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "16in/8out, non-symmetric, 253 distinct, A=0->0. Same residual class as ex243. UNCRACKED.",
   "classification": {
     "labels": "mixed_general_logic|mux_like",
     "effective_support": "15",

@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "fp16 ln(x). CRACKED but library math differs by ~1 ULP so not yet bit-exact RTL. ln(0)=-inf, ln(1)=0, ln(neg)=NaN. DAZ.",
+  "notes": "fp16 ln(x). CRACKED but library math differs by ~1 ULP so not yet bit-exact RTL. ln(0)=-inf, ln(1)=0, ln(neg)=NaN. DAZ. POLY: polynomial approximation of log2(1+f) also fails bit-exactness (degree-6 still 36/65536 mismatch, last-ULP rounding) AND needs 6 mults (not shallower than LUT). So neither LUT-RTL nor poly-RTL beats the structural AIG. This fp16-log group is at its floor for our methods.",
   "classification": {
     "labels": "mux_like",
     "effective_support": "16",

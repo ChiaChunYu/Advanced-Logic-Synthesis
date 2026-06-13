@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "fp16 log2(x). BIT-EXACT RTL written (fp16_synth.py, 24-bit fixed-point: (e-15)+LUT[m], DAZ, neg->NaN). CEC-verified equivalent. BUT deepsyn floors at ~132K ADP vs current 103,598 BDD result -> NOT adopted (LUT+fixed-point path too deep). Same outcome as ex242 div / ex246 mul: correct semantics, structural AIG still wins.",
+  "notes": "fp16 log2(x). BIT-EXACT RTL written (fp16_synth.py, 24-bit fixed-point: (e-15)+LUT[m], DAZ, neg->NaN). CEC-verified equivalent. BUT deepsyn floors at ~132K ADP vs current 103,598 BDD result -> NOT adopted (LUT+fixed-point path too deep). Same outcome as ex242 div / ex246 mul: correct semantics, structural AIG still wins. POLY: polynomial approximation of log2(1+f) also fails bit-exactness (degree-6 still 36/65536 mismatch, last-ULP rounding) AND needs 6 mults (not shallower than LUT). So neither LUT-RTL nor poly-RTL beats the structural AIG. This fp16-log group is at its floor for our methods.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_2",

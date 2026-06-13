@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "16in/8out fp8, not standard binary op (best e5m2 add 2150). UNCRACKED.",
+  "notes": "16in/8out fp8-residual, symmetric. Not standard op. UNCRACKED.",
   "initial_synthesis": {
     "initial_method": "bdd_selector_reduction",
     "flow_name": "llm_mix_2",

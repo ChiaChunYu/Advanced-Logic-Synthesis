@@ -44,7 +44,7 @@
       "prev_adp": 548416
     }
   ],
-  "notes": "",
+  "notes": "16/16, not fp16 unary (probe failed), not arithmetic. Possibly decomposable/unknown. UNCRACKED.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_1",

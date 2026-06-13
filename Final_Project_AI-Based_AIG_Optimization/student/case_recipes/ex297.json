@@ -23,7 +23,7 @@
       "prev_adp": 500140
     }
   ],
-  "notes": "14in/14out, distinct=6660. deepsyn 300s: 0 gain. Not obviously arithmetic. TA 226K vs our 500K. UNCRACKED.",
+  "notes": "14/14, single-bit identity (bit_k->1<<k, out[0]=0), full diffusion, nonlinear. Same crypto class as ex299 (related low-bit values: both end ...55d for in=6; structurally similar, different width). Per IWLS source = s_box/inverse-s_box family. NOT plain GF inverse / AES sbox / parallel sbox. Likely a bit-preserving nonlinear permutation (crypto). Uncrackable without exact construction. Gap 274K (13% of deficit).",
   "classification": {
     "labels": "general_random",
     "effective_support": "14",

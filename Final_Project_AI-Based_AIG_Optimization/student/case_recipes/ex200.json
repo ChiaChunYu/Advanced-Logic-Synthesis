@@ -42,6 +42,13 @@
       "delay": 14,
       "adp": 50120,
       "prev_adp": 50176
+    },
+    {
+      "date": "2026-06-13",
+      "area": 3578,
+      "delay": 14,
+      "adp": 50092,
+      "prev_adp": 50120
     }
   ],
   "notes": "bf16 exp(x)=e^x (9/9 probe). BF16 unary. FP unary RTL (LUT+normalize) historically loses to structural AIG.",
@@ -56,11 +63,11 @@
     "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance"
   },
   "reference_adp": 40052,
-  "ratio_vs_reference": 1.2514,
+  "ratio_vs_reference": 1.2507,
   "best": {
-    "area": 3580,
+    "area": 3578,
     "delay": 14,
-    "adp": 50120,
+    "adp": 50092,
     "date": "2026-06-13"
   }
 }

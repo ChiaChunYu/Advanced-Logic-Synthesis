@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "16in/8out fp8, not standard (best e4m3 max 2026). UNCRACKED.",
+  "notes": "16in/8out fp8-residual. Not standard op. UNCRACKED.",
   "initial_synthesis": {
     "initial_method": "bdd_high_influence",
     "flow_name": "llm_mix_1",

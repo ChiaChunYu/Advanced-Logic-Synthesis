@@ -63,6 +63,10 @@ ABC_FLOWS = [
     ("mfs",        "dc2; &get; &mfs; &put; balance"),
     ("mfs_w4",     "&get; &dch; &mfs -W 4; &put; dc2; balance"),
     ("dc2_mfs",    "dc2; &get; &mfs -W 4 -M 5000; &put; dc2; balance"),
+    # wider-window &mfs and &dch -f + &mfs — strongest in probing (beat the
+    # above on every lagging case tested, e.g. ex289 1308->1185, ex205 -2%).
+    ("mfs_w6",     "&get; &mfs -W 6 -M 8000; &put; dc2; balance"),
+    ("dchf_mfs",   "&get; &dch -f; &mfs; &put; dc2; balance"),
 ]
 
 
