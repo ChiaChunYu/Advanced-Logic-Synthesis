@@ -6,7 +6,7 @@ D=/tmp/fp16work
 rm -rf "$D"
 mkdir -p "$D/pareto"
 
-python3 -c 'import sys; sys.path.insert(0,"student"); from fp16_synth import verilog_fp16_log2; open("/tmp/fp16work/ex224.v","w").write(verilog_fp16_log2())'
+python3 -c 'import sys; sys.path.insert(0,"student"); sys.path.insert(0,"student/experiment"); from fp16_synth import verilog_fp16_log2; open("/tmp/fp16work/ex224.v","w").write(verilog_fp16_log2())'
 
 yosys -q -p "read_verilog $D/ex224.v; hierarchy -top top; proc; memory; flatten; opt; techmap; opt; write_blif $D/ex224.blif"
 ./student/abc -c "read_blif $D/ex224.blif; strash; dc2; dc2; balance; write_aiger -s $D/ex224.aig" >/dev/null

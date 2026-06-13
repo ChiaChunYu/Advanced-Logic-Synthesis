@@ -35,7 +35,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT = Path(__file__).resolve().parent.parent.parent  # student/experiment -> project
 sys.path.insert(0, str(ROOT / "student"))
 
 from abc_core import is_equivalent, measure_adp, run_abc_script

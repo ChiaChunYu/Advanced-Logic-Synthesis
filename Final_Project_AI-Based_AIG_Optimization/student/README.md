@@ -405,9 +405,21 @@ student/exact_function_recognition.py   exact template detection
 ```text
 student/advanced_synthesis.py           area-first / semantic cleanup stages
 student/refine_close.py                 post-hoc ABC flow refinement
-student/fp8_synth.py                    semantic fp8 word-level reconstruction
+student/fp8_synth.py                    fp8 add/mul word-level RTL (ex240/241/245)
+student/mult_synth.py                   signed/unsigned multiplier RTL (ex261-264)
+student/isqrt_synth.py                  integer isqrt RTL (ex279)
+student/optimize.py                     final all-case back-end sweep (Block D)
 student/mockturtle_opt/                 mockturtle structural resynthesis tool
 ```
+
+The `*_synth.py` scripts emit an exact Verilog implementation of a recognised
+word-level function, synthesize it through Yosys + ABC + `&my_deepsyn`, and
+adopt the result only when it is CEC-equivalent and strictly lower ADP. Each
+keeps an `IDENTIFIED` list (cases whose RTL wins, run by the pipeline) and an
+`IDENTIFIED_NONWINNING`/`_SMALL` list (verified semantics whose RTL loses to the
+structural AIG — documented, re-checkable via `--case`, not run by default).
+The non-winning-only synthesizers (`fp16_synth.py` for fp16 logs, `square_synth.py`
+for x^2) live under `student/experiment/`.
 
 ### Reproducibility + per-case records
 
