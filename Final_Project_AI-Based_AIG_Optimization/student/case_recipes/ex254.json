@@ -21,9 +21,23 @@
       "delay": 17,
       "adp": 45407,
       "prev_adp": 45662
+    },
+    {
+      "date": "2026-06-13",
+      "area": 2670,
+      "delay": 17,
+      "adp": 45390,
+      "prev_adp": 45407
+    },
+    {
+      "date": "2026-06-13",
+      "area": 2669,
+      "delay": 17,
+      "adp": 45373,
+      "prev_adp": 45390
     }
   ],
-  "notes": "",
+  "notes": "16in/8out fp8, not standard (best e5m2 sub 2855). UNCRACKED.",
   "classification": {
     "labels": "general_random|symmetric_variable_groups",
     "effective_support": "16",
@@ -35,11 +49,11 @@
     "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
   },
   "reference_adp": 38220,
-  "ratio_vs_reference": 1.188,
+  "ratio_vs_reference": 1.1872,
   "best": {
-    "area": 2671,
+    "area": 2669,
     "delay": 17,
-    "adp": 45407,
+    "adp": 45373,
     "date": "2026-06-13"
   }
 }

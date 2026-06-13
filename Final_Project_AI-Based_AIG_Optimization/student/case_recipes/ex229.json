@@ -23,7 +23,7 @@
       "prev_adp": 63056
     }
   ],
-  "notes": "",
+  "notes": "fp16 tanh(x) (9/9).",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_2",

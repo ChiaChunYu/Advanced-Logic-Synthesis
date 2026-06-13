@@ -23,7 +23,7 @@
       "prev_adp": 27638
     }
   ],
-  "notes": "",
+  "notes": "bf16 sinh(x) (9/9: sinh(1)=1.175, sinh(2)=3.627). BF16 unary.",
   "initial_synthesis": {
     "initial_method": "bdd_selector_reduction",
     "flow_name": "llm_mix_1",

@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "bf16 1/cbrt(x) = x^(-1/3) (9/9). BF16 unary.",
   "initial_synthesis": {
     "initial_method": "bdd_low_influence",
     "flow_name": "llm_mix_1",

@@ -14,20 +14,27 @@
       "delay": 13,
       "adp": 7449,
       "prev_adp": 7527
+    },
+    {
+      "date": "2026-06-13",
+      "area": 571,
+      "delay": 13,
+      "adp": 7423,
+      "prev_adp": 7449
     }
   ],
-  "notes": "",
+  "notes": "unsigned 7-bit B/A -> 7 division. 0-mismatch. ratio 1.00.",
   "initial_synthesis": {
     "initial_method": "existing_output",
     "flow_name": "current",
     "flow_commands": ""
   },
   "reference_adp": 7446,
-  "ratio_vs_reference": 1.0004,
+  "ratio_vs_reference": 0.9969,
   "best": {
-    "area": 573,
+    "area": 571,
     "delay": 13,
-    "adp": 7449,
+    "adp": 7423,
     "date": "2026-06-13"
   }
 }

@@ -14,6 +14,27 @@
       "delay": 14,
       "adp": 114198,
       "prev_adp": 114240
+    },
+    {
+      "date": "2026-06-13",
+      "area": 8156,
+      "delay": 14,
+      "adp": 114184,
+      "prev_adp": 114198
+    },
+    {
+      "date": "2026-06-13",
+      "area": 8153,
+      "delay": 14,
+      "adp": 114142,
+      "prev_adp": 114184
+    },
+    {
+      "date": "2026-06-13",
+      "area": 8147,
+      "delay": 14,
+      "adp": 114058,
+      "prev_adp": 114142
     }
   ],
   "notes": "",
@@ -23,11 +44,11 @@
     "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
   },
   "reference_adp": 112966,
-  "ratio_vs_reference": 1.0109,
+  "ratio_vs_reference": 1.0097,
   "best": {
-    "area": 8157,
+    "area": 8147,
     "delay": 14,
-    "adp": 114198,
+    "adp": 114058,
     "date": "2026-06-13"
   }
 }

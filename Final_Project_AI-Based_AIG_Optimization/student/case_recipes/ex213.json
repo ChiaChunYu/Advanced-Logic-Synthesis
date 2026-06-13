@@ -16,7 +16,7 @@
       "prev_adp": 3150
     }
   ],
-  "notes": "",
+  "notes": "bf16 sqrt(x) (8/9). BF16 unary.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_2",

@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "unsigned 4x4->8 multiplier (0-mismatch). A=hi4,B=lo4. RTL loses to current tight AIG (946); not adopted.",
   "classification": {
     "labels": "mixed_general_logic|symmetric|exact_k|cube_decoder_like|mux_like|npn_at-least-2",
     "effective_support": "8",

@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "unsigned 8x8->16 multiplier (0-mismatch). RTL loses (10,710).",
   "initial_synthesis": {
     "initial_method": "existing_output",
     "flow_name": "current",

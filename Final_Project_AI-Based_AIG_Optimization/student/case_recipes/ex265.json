@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "unsigned 4-bit B/A -> 4 (A=hi=divisor, B=lo=dividend, div0->all1). 0-mismatch. Small, RTL unlikely to win.",
   "initial_synthesis": {
     "initial_method": "existing_output",
     "flow_name": "current",

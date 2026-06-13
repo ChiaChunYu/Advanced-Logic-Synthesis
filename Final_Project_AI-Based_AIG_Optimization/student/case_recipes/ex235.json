@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "fp16 rsqrt 1/sqrt(x) (8/9).",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "ga_00",

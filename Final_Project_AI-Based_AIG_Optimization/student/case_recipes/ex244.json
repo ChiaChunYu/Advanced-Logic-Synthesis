@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "16in/8out fp8, not standard binary op (best e5m2 add 2150). UNCRACKED.",
   "initial_synthesis": {
     "initial_method": "bdd_selector_reduction",
     "flow_name": "llm_mix_2",

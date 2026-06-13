@@ -21,6 +21,20 @@
       "delay": 15,
       "adp": 144750,
       "prev_adp": 144810
+    },
+    {
+      "date": "2026-06-13",
+      "area": 9649,
+      "delay": 15,
+      "adp": 144735,
+      "prev_adp": 144750
+    },
+    {
+      "date": "2026-06-13",
+      "area": 9648,
+      "delay": 15,
+      "adp": 144720,
+      "prev_adp": 144735
     }
   ],
   "notes": "",
@@ -30,11 +44,11 @@
     "flow_commands": "dc2; drw; drf; rewrite; dc2; balance; drw; drf; balance"
   },
   "reference_adp": 133365,
-  "ratio_vs_reference": 1.0854,
+  "ratio_vs_reference": 1.0851,
   "best": {
-    "area": 9650,
+    "area": 9648,
     "delay": 15,
-    "adp": 144750,
+    "adp": 144720,
     "date": "2026-06-13"
   }
 }

@@ -58,6 +58,11 @@ ABC_FLOWS = [
     ("dc2_syn2",   "dc2; &get; &syn2 -J 8; &put; dc2; balance"),
     ("resub_dc2",  "resub -K 8; dc2; rewrite -z; balance"),
     ("fraig_dc2",  "fraig; dc2; rewrite -z; balance"),
+    # don't-care-based resubstitution (&mfs) — found to shrink several cases
+    # that the rewrite/refactor flows had already saturated.
+    ("mfs",        "dc2; &get; &mfs; &put; balance"),
+    ("mfs_w4",     "&get; &dch; &mfs -W 4; &put; dc2; balance"),
+    ("dc2_mfs",    "dc2; &get; &mfs -W 4 -M 5000; &put; dc2; balance"),
 ]
 
 

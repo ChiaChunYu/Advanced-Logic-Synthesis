@@ -23,7 +23,7 @@
       "prev_adp": 19045
     }
   ],
-  "notes": "",
+  "notes": "fp16 cube x^3 (9/9).",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_2",

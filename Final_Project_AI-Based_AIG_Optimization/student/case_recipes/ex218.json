@@ -30,7 +30,7 @@
       "prev_adp": 4020
     }
   ],
-  "notes": "",
+  "notes": "bf16 1/x^3 (recip cube) (9/9). BF16 unary.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "adp_balanced",

@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "16in/8out fp8, not standard (best e4m3 mul 3807). UNCRACKED.",
   "classification": {
     "labels": "mixed_general_logic|constant_zero|symmetric_variable_groups",
     "effective_support": "16",

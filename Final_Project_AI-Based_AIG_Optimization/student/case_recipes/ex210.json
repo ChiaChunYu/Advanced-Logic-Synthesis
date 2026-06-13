@@ -30,7 +30,7 @@
       "prev_adp": 31766
     }
   ],
-  "notes": "",
+  "notes": "bf16 sigmoid(x)=1/(1+e^-x) (9/9). BF16 unary.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_1",

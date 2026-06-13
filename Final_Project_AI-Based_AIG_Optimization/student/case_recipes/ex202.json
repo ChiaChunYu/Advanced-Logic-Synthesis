@@ -28,20 +28,34 @@
       "delay": 14,
       "adp": 49938,
       "prev_adp": 50008
+    },
+    {
+      "date": "2026-06-13",
+      "area": 3565,
+      "delay": 14,
+      "adp": 49910,
+      "prev_adp": 49938
+    },
+    {
+      "date": "2026-06-13",
+      "area": 3560,
+      "delay": 14,
+      "adp": 49840,
+      "prev_adp": 49910
     }
   ],
-  "notes": "",
+  "notes": "bf16 10^x (9/9). BF16 unary.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_2",
     "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
   },
   "reference_adp": 43344,
-  "ratio_vs_reference": 1.1521,
+  "ratio_vs_reference": 1.1499,
   "best": {
-    "area": 3567,
+    "area": 3560,
     "delay": 14,
-    "adp": 49938,
+    "adp": 49840,
     "date": "2026-06-13"
   }
 }

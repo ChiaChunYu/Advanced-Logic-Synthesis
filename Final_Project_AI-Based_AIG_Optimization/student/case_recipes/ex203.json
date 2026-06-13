@@ -37,7 +37,7 @@
       "prev_adp": 66544
     }
   ],
-  "notes": "",
+  "notes": "bf16 ln(x) (8/9). BF16 unary.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "ga_00",

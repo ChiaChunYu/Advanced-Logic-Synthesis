@@ -16,7 +16,7 @@
       "prev_adp": 22036
     }
   ],
-  "notes": "",
+  "notes": "fp16 sqrt(x) (8/9).",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "ga_01",

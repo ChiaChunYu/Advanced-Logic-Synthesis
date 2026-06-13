@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "fp16 square x^2 (9/9).",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_1",

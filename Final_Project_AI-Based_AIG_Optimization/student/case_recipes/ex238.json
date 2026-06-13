@@ -23,7 +23,7 @@
       "prev_adp": 19253
     }
   ],
-  "notes": "",
+  "notes": "fp16 1/x^3 (9/9).",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "area_dc2",

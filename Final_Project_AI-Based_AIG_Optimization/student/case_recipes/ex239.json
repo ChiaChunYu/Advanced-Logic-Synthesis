@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "fp16 1/cbrt(x) (9/9).",
   "initial_synthesis": {
     "initial_method": "bdd_balanced_shannon",
     "flow_name": "adp_balanced",

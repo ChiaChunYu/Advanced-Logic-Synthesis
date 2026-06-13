@@ -35,6 +35,20 @@
       "delay": 23,
       "adp": 12397,
       "prev_adp": 12960
+    },
+    {
+      "date": "2026-06-13",
+      "area": 528,
+      "delay": 23,
+      "adp": 12144,
+      "prev_adp": 12397
+    },
+    {
+      "date": "2026-06-13",
+      "area": 527,
+      "delay": 23,
+      "adp": 12121,
+      "prev_adp": 12144
     }
   ],
   "notes": "signed 8x8 -> 16 multiplier. RTL + deepsyn: 21090 -> 15097. Verified.",
@@ -44,11 +58,11 @@
     "flow_commands": ""
   },
   "reference_adp": 9724,
-  "ratio_vs_reference": 1.2749,
+  "ratio_vs_reference": 1.2465,
   "best": {
-    "area": 539,
+    "area": 527,
     "delay": 23,
-    "adp": 12397,
+    "adp": 12121,
     "date": "2026-06-13"
   }
 }

@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "unsigned 5-bit B/A -> 5 division (div0->all1). 0-mismatch. ratio 1.10.",
   "initial_synthesis": {
     "initial_method": "existing_output",
     "flow_name": "current",

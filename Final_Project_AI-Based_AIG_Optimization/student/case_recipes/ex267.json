@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "unsigned 6-bit B/A -> 6 division. 0-mismatch. ratio 1.18.",
   "initial_synthesis": {
     "initial_method": "existing_output",
     "flow_name": "current",

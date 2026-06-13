@@ -16,7 +16,7 @@
       "prev_adp": 108783
     }
   ],
-  "notes": "",
+  "notes": "fp16 sinh(x) (9/9).",
   "initial_synthesis": {
     "initial_method": "bdd_high_influence",
     "flow_name": "llm_mix_2",

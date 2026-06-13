@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "unsigned 8-bit B/A -> 8 division. 0-mismatch. ratio 1.27 - best RTL target.",
   "initial_synthesis": {
     "initial_method": "existing_output",
     "flow_name": "current",

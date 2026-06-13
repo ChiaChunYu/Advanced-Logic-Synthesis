@@ -23,7 +23,7 @@
       "prev_adp": 13716
     }
   ],
-  "notes": "",
+  "notes": "fp16 reciprocal 1/x (9/9).",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_2",

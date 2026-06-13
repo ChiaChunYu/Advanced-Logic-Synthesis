@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "16in/16out, distinct=24485 (near-bijective). NOT a smooth fp16 unary: large x (>=2) often passthrough but small/mid x map to scattered values in [-1,1] with no monotonicity (x=0.25->0.625, 1->0.625, 1.25->-0.896, 1.5->0.625). Not gelu/silu/x-c. Looks like a bit-level transform/hash, not arithmetic. deepsyn 300s: 0 gain. TA ref 1.01M vs our 2.24M (2.21x). UNCRACKED.",
+  "notes": "16/16, distinct=24485. DEEP ANALYSIS: single-bit inputs are IDENTITY (bit_k->1<<k, out[0]=0) but ANY 2-bit combo explodes nonlinearly (in=3->0x6d83, in=6->0x555d) while cross-byte single bits stay identity (in=0x101->0x101). NOT affine GF(2), NOT separable hi/lo, NOT x*x/gray/x*3/popcount. Highly nonlinear + non-separable = S-box/hash/crypto-like, not arithmetic. Largest gap (1.23M = 60% of total deficit) but uncrackable by generic function-guessing/DSD/linear analysis. Needs domain-specific reverse engineering.",
   "classification": {
     "labels": "general_random",
     "effective_support": "16",

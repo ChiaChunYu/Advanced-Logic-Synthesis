@@ -14,6 +14,20 @@
       "delay": 52,
       "adp": 13832,
       "prev_adp": 14760
+    },
+    {
+      "date": "2026-06-13",
+      "area": 299,
+      "delay": 43,
+      "adp": 12857,
+      "prev_adp": 13832
+    },
+    {
+      "date": "2026-06-13",
+      "area": 292,
+      "delay": 43,
+      "adp": 12556,
+      "prev_adp": 12857
     }
   ],
   "notes": "",
@@ -23,11 +37,11 @@
     "flow_commands": ""
   },
   "reference_adp": 10952,
-  "ratio_vs_reference": 1.263,
+  "ratio_vs_reference": 1.1465,
   "best": {
-    "area": 266,
-    "delay": 52,
-    "adp": 13832,
+    "area": 292,
+    "delay": 43,
+    "adp": 12556,
     "date": "2026-06-13"
   }
 }

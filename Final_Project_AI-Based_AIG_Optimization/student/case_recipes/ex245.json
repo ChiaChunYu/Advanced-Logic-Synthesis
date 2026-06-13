@@ -28,6 +28,20 @@
       "delay": 33,
       "adp": 10857,
       "prev_adp": 11560
+    },
+    {
+      "date": "2026-06-13",
+      "area": 324,
+      "delay": 33,
+      "adp": 10692,
+      "prev_adp": 10857
+    },
+    {
+      "date": "2026-06-13",
+      "area": 323,
+      "delay": 33,
+      "adp": 10659,
+      "prev_adp": 10692
     }
   ],
   "notes": "e5m2 ADD (no-inf variant): 0x7c/0x7d/0x7e are finite, only 0x7f/0xff are NaN -> canonical 0x7f. Saturate to 0x7e, RNE. Semantic RTL in fp8_synth.py: 15056 -> 12642. Verified bit-exact (65536) + CEC.",
@@ -37,11 +51,11 @@
     "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance; refactor; balance"
   },
   "reference_adp": 11050,
-  "ratio_vs_reference": 0.9825,
+  "ratio_vs_reference": 0.9646,
   "best": {
-    "area": 329,
+    "area": 323,
     "delay": 33,
-    "adp": 10857,
+    "adp": 10659,
     "date": "2026-06-13"
   }
 }

@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "12/12 (group ex280-284, dims 12-16). Single-bit inputs give halving outputs (in=2->big, 4->big/2, 8->/4) like a reciprocal/shift, BUT multi-bit inputs are scattered (out[3]=0,out[6]=16384) -> not C/x, not fp reciprocal. Likely GF(2)-linear-ish per-bit superposition with nonlinear core (cf ex286). distinct~22%. UNCRACKED but already beats ref (0.96).",
   "classification": {
     "labels": "general_random",
     "effective_support": "12",

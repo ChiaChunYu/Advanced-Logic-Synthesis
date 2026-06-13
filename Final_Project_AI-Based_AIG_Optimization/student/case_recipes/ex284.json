@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "16/16, same family as ex280-283. Single-bit halving pattern, multi-bit scattered. Not integer C/x, not fp16 1/x. UNCRACKED. Beats ref (0.93).",
   "classification": {
     "labels": "general_random",
     "effective_support": "16",

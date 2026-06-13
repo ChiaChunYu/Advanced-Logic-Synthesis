@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "",
+  "notes": "likely e5m2 div B/A (28/3855 sampled mismatch, div-by-zero corner only). Small ADP (4,849) so div RTL would not beat structural. Not pursued.",
   "initial_synthesis": {
     "initial_method": "bdd_high_influence",
     "flow_name": "llm_mix_1",
