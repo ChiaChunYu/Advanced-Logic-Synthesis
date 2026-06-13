@@ -9,7 +9,7 @@
       "prev_adp": null
     }
   ],
-  "notes": "16/16 crypto s_box-family (IWLS category confirmed). single-bit identity + full diffusion + nonlinear. NOT GF(2^16) inverse, NOT AES sbox (parallel or composed), NOT plain arithmetic. Sibling of ex297 (14/14). Gap 1.23M = 60% of total deficit. The single biggest prize but needs the exact crypto construction to write RTL.",
+  "notes": "16/16 crypto family (IWLS s_box category, 60% of total deficit). DEEPEST analysis: (1) single-bit identity out[1<<k]=1<<k, out[0]=0. (2) d(x)=out[x]^x: bit-pair interaction is a BANDED+WRAP graph - bit i interacts mainly with i+-1, i+-2, plus 0<->14,15 and 14<->15 ring wrap. (3) yet full random support = all 16 inputs per output bit. => LOCAL near 0 but FULLY DIFFUSING in general = carry-chain/iterative crypto (multi-round LFSR/CRC/ARX-like). NOT: GF(2^16) inv, AES sbox, carryless mult, x*x, shift/rotate-xor, x&rotl. Has clear iterative structure but exact construction (polynomial/rounds/constants) needs crypto reverse-engineering beyond hypothesis sweeps. Sibling ex297 (14/14) same banded structure.",
   "classification": {
     "labels": "general_random",
     "effective_support": "16",
