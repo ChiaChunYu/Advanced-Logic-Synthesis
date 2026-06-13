@@ -125,6 +125,16 @@ python3 student/optimize.py --all \
   --strategies flows resynth deepsyn mockturtle \
   --timeout 200 --deepsyn-seconds 90 --seeds 0 42 --workers 6 --no-refresh
 
+# ── Block D2: extra-long deepsyn on cases that only break through under a long,
+# multi-seed randomized search (e.g. ex242 fp8-div: 15,285 -> 11,040 found only
+# at 480s x4 seeds, which the 90s pass above misses). Equivalence-gated, so it
+# is always safe and only adopts a strict improvement. ────────────────────────
+echo "=== Block D2: extra-long deepsyn on long-search-sensitive cases ==="
+python3 student/optimize.py \
+  --cases ex242 ex243 ex247 ex248 ex251 ex289 ex205 ex264 ex263 \
+  --strategies deepsyn \
+  --timeout 600 --deepsyn-seconds 480 --seeds 0 42 7 11 --workers 6 --no-refresh
+
 # ── Block E: evaluate, verify no regression, refresh per-case records ────────
 echo "=== Block E: evaluate + verify + record ==="
 python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
