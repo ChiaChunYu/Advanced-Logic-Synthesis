@@ -14,6 +14,13 @@
       "delay": 17,
       "adp": 117062,
       "prev_adp": 117130
+    },
+    {
+      "date": "2026-06-13",
+      "area": 6872,
+      "delay": 17,
+      "adp": 116824,
+      "prev_adp": 117062
     }
   ],
   "notes": "fp16 sigmoid(x)=1/(1+e^-x) (7/7: 0.731, 0.881). FP16 unary.",
@@ -23,11 +30,11 @@
     "flow_commands": "rewrite; refactor; dc2; rewrite -z; refactor -z; balance"
   },
   "reference_adp": 108320,
-  "ratio_vs_reference": 1.0807,
+  "ratio_vs_reference": 1.0785,
   "best": {
-    "area": 6886,
+    "area": 6872,
     "delay": 17,
-    "adp": 117062,
+    "adp": 116824,
     "date": "2026-06-13"
   }
 }

@@ -33,11 +33,27 @@ ABC        = ROOT / "student" / "abc"
 BENCHMARKS = ROOT / "benchmarks"
 OUTPUT     = ROOT / "output"
 
-# case -> operand width W (signed WxW -> 2W)
-IDENTIFIED: dict[str, int] = {
-    "ex262": 6,
-    "ex263": 7,
-    "ex264": 8,
+# case -> (operand width W, signed?)  for a WxW -> 2W multiplier with operand
+# A in minterm bits [2W-1:W] and B in [W-1:0]. All verified 0-mismatch.
+#
+# Empirically the RTL only beats the structural AIG once the operands are wide
+# enough (>= 5-6 bits); small multipliers already have a tight BDD/ABC result.
+# IDENTIFIED = adopted-into-pipeline winners; IDENTIFIED_SMALL = verified but
+# RTL loses, kept for reference / re-checking via --case.
+IDENTIFIED: dict[str, tuple[int, bool]] = {
+    "ex261": (5, True),    # signed 5x5
+    "ex262": (6, True),    # signed 6x6
+    "ex263": (7, True),    # signed 7x7
+    "ex264": (8, True),    # signed 8x8
+}
+
+IDENTIFIED_SMALL: dict[str, tuple[int, bool]] = {
+    "ex255": (4, False),   # unsigned 4x4 — RTL loses to current 946
+    "ex256": (5, False),   # unsigned 5x5 — loses to 2,282
+    "ex257": (6, False),   # unsigned 6x6 — loses to 4,662
+    "ex258": (7, False),   # unsigned 7x7 — loses to 7,320
+    "ex259": (8, False),   # unsigned 8x8 — loses to 10,710
+    "ex260": (4, True),    # signed 4x4   — loses to 850
 }
 
 ABC_FLOWS = [
@@ -50,30 +66,31 @@ ABC_FLOWS = [
 ]
 
 
-def verilog_signed_mult(width: int) -> str:
-    """Signed W×W → 2W multiplier. A = minterm bits [2W-1:W], B = [W-1:0]."""
+def verilog_mult(width: int, signed: bool) -> str:
+    """W×W → 2W multiplier. A = minterm bits [2W-1:W], B = [W-1:0]."""
     n = 2 * width
     a_bits = ", ".join(f"x{i}" for i in range(n - 1, width - 1, -1))   # high W
     b_bits = ", ".join(f"x{i}" for i in range(width - 1, -1, -1))      # low W
     in_decls = ", ".join(f"x{i}" for i in range(n))
     out_decls = ", ".join(f"y{i}" for i in range(n))
     y_concat = ", ".join(f"y{i}" for i in range(n - 1, -1, -1))
+    sgn = "signed " if signed else ""
     return f"""\
 module top (
   input  {in_decls},
   output {out_decls}
 );
-  wire signed [{width-1}:0] A = {{{a_bits}}};
-  wire signed [{width-1}:0] B = {{{b_bits}}};
-  wire signed [{n-1}:0] P = A * B;
+  wire {sgn}[{width-1}:0] A = {{{a_bits}}};
+  wire {sgn}[{width-1}:0] B = {{{b_bits}}};
+  wire {sgn}[{n-1}:0] P = A * B;
   assign {{{y_concat}}} = P;
 endmodule
 """
 
 
 def synth_case(case: str, keep_tmp: bool = False) -> bool:
-    width = IDENTIFIED[case]
-    verilog = verilog_signed_mult(width)
+    width, signed = {**IDENTIFIED, **IDENTIFIED_SMALL}[case]
+    verilog = verilog_mult(width, signed)
     truth = BENCHMARKS / f"{case}.truth"
     aig = OUTPUT / f"{case}.aig"
 
@@ -155,10 +172,11 @@ def main() -> int:
     ap.add_argument("--case", action="append", default=None)
     ap.add_argument("--keep-tmp", action="store_true")
     args = ap.parse_args()
+    known = {**IDENTIFIED, **IDENTIFIED_SMALL}
     cases = args.case if args.case else list(IDENTIFIED)
     any_improved = False
     for case in cases:
-        if case not in IDENTIFIED:
+        if case not in known:
             print(f"{case}: not identified, skipping")
             continue
         if synth_case(case, args.keep_tmp):

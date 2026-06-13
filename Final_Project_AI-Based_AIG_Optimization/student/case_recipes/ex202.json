@@ -21,6 +21,13 @@
       "delay": 14,
       "adp": 50008,
       "prev_adp": 50050
+    },
+    {
+      "date": "2026-06-13",
+      "area": 3567,
+      "delay": 14,
+      "adp": 49938,
+      "prev_adp": 50008
     }
   ],
   "notes": "",
@@ -30,11 +37,11 @@
     "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
   },
   "reference_adp": 43344,
-  "ratio_vs_reference": 1.1537,
+  "ratio_vs_reference": 1.1521,
   "best": {
-    "area": 3572,
+    "area": 3567,
     "delay": 14,
-    "adp": 50008,
+    "adp": 49938,
     "date": "2026-06-13"
   }
 }
