@@ -35,6 +35,13 @@
       "delay": 17,
       "adp": 181254,
       "prev_adp": 181271
+    },
+    {
+      "date": "2026-06-13",
+      "area": 10660,
+      "delay": 17,
+      "adp": 181220,
+      "prev_adp": 181254
     }
   ],
   "notes": "fp16 exp(x)=e^x (7/7 probe points). FP16 unary -> LUT+normalize RTL, likely loses to structural AIG like fp16 log2. 16/16.",
@@ -44,11 +51,11 @@
     "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance"
   },
   "reference_adp": 180404,
-  "ratio_vs_reference": 1.0047,
+  "ratio_vs_reference": 1.0045,
   "best": {
-    "area": 10662,
+    "area": 10660,
     "delay": 17,
-    "adp": 181254,
-    "date": "2026-06-13"
+    "adp": 181220,
+    "date": "2026-06-14"
   }
 }

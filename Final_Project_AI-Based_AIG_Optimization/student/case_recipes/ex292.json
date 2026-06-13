@@ -49,6 +49,13 @@
       "delay": 14,
       "adp": 88130,
       "prev_adp": 88144
+    },
+    {
+      "date": "2026-06-13",
+      "area": 6292,
+      "delay": 14,
+      "adp": 88088,
+      "prev_adp": 88130
     }
   ],
   "notes": "14/14 same unknown group. UNCRACKED. ratio 1.04.",
@@ -58,11 +65,11 @@
     "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance"
   },
   "reference_adp": 84854,
-  "ratio_vs_reference": 1.0386,
+  "ratio_vs_reference": 1.0381,
   "best": {
-    "area": 6295,
+    "area": 6292,
     "delay": 14,
-    "adp": 88130,
-    "date": "2026-06-13"
+    "adp": 88088,
+    "date": "2026-06-14"
   }
 }

@@ -42,6 +42,13 @@
       "delay": 17,
       "adp": 115311,
       "prev_adp": 115345
+    },
+    {
+      "date": "2026-06-13",
+      "area": 6780,
+      "delay": 17,
+      "adp": 115260,
+      "prev_adp": 115311
     }
   ],
   "notes": "fp16 exp2(x)=2^x (7/7). FP16 unary.",
@@ -51,11 +58,11 @@
     "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance"
   },
   "reference_adp": 105655,
-  "ratio_vs_reference": 1.0914,
+  "ratio_vs_reference": 1.0909,
   "best": {
-    "area": 6783,
+    "area": 6780,
     "delay": 17,
-    "adp": 115311,
-    "date": "2026-06-13"
+    "adp": 115260,
+    "date": "2026-06-14"
   }
 }

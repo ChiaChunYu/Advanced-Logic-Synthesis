@@ -35,6 +35,13 @@
       "delay": 13,
       "adp": 49179,
       "prev_adp": 49205
+    },
+    {
+      "date": "2026-06-13",
+      "area": 3781,
+      "delay": 13,
+      "adp": 49153,
+      "prev_adp": 49179
     }
   ],
   "notes": "12/12 unknown-function group (ex290-294, dims 12-16). NOT a split-half binary op (add/sub/mul/xor/and/or all >14% mismatch), NOT a clean unary. &dsd finds no disjoint decomposition; collapse BDD=3197. Per TA HTML this is the class/rotation/split unknown group. UNCRACKED. ratio 1.16.",
@@ -44,11 +51,11 @@
     "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
   },
   "reference_adp": 42328,
-  "ratio_vs_reference": 1.1619,
+  "ratio_vs_reference": 1.1612,
   "best": {
-    "area": 3783,
+    "area": 3781,
     "delay": 13,
-    "adp": 49179,
-    "date": "2026-06-13"
+    "adp": 49153,
+    "date": "2026-06-14"
   }
 }

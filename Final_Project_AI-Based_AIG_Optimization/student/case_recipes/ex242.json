@@ -7,6 +7,13 @@
       "delay": 15,
       "adp": 15285,
       "prev_adp": null
+    },
+    {
+      "date": "2026-06-14",
+      "area": 736,
+      "delay": 15,
+      "adp": 11040,
+      "prev_adp": 15285
     }
   ],
   "notes": "fp8 e4m3 DIV (result = B/A, x/0 saturates, 0/0=NaN). Bit-exact RTL but synthesizes far larger than current structural AIG (>1.1M ADP vs 15285); NOT adopted.",
@@ -16,11 +23,11 @@
     "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance; refactor; dc2; rewrite -z; balance"
   },
   "reference_adp": 11900,
-  "ratio_vs_reference": 1.2845,
+  "ratio_vs_reference": 0.9277,
   "best": {
-    "area": 1019,
+    "area": 736,
     "delay": 15,
-    "adp": 15285,
-    "date": "2026-06-13"
+    "adp": 11040,
+    "date": "2026-06-14"
   }
 }

@@ -42,6 +42,13 @@
       "delay": 19,
       "adp": 548264,
       "prev_adp": 548416
+    },
+    {
+      "date": "2026-06-13",
+      "area": 28853,
+      "delay": 19,
+      "adp": 548207,
+      "prev_adp": 548264
     }
   ],
   "notes": "16/16, not fp16 unary (probe failed), not arithmetic. Possibly decomposable/unknown. UNCRACKED.",
@@ -51,11 +58,11 @@
     "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance"
   },
   "reference_adp": 539049,
-  "ratio_vs_reference": 1.0171,
+  "ratio_vs_reference": 1.017,
   "best": {
-    "area": 28856,
+    "area": 28853,
     "delay": 19,
-    "adp": 548264,
-    "date": "2026-06-13"
+    "adp": 548207,
+    "date": "2026-06-14"
   }
 }

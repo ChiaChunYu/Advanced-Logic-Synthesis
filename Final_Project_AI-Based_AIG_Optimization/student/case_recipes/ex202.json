@@ -49,6 +49,13 @@
       "delay": 14,
       "adp": 49826,
       "prev_adp": 49840
+    },
+    {
+      "date": "2026-06-13",
+      "area": 3558,
+      "delay": 14,
+      "adp": 49812,
+      "prev_adp": 49826
     }
   ],
   "notes": "bf16 10^x (9/9). BF16 unary.",
@@ -58,11 +65,11 @@
     "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
   },
   "reference_adp": 43344,
-  "ratio_vs_reference": 1.1495,
+  "ratio_vs_reference": 1.1492,
   "best": {
-    "area": 3559,
+    "area": 3558,
     "delay": 14,
-    "adp": 49826,
-    "date": "2026-06-13"
+    "adp": 49812,
+    "date": "2026-06-14"
   }
 }
