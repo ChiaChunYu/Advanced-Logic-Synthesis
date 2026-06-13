@@ -28,6 +28,13 @@
       "delay": 21,
       "adp": 5040,
       "prev_adp": 5187
+    },
+    {
+      "date": "2026-06-14",
+      "area": 214,
+      "delay": 23,
+      "adp": 4922,
+      "prev_adp": 5040
     }
   ],
   "notes": "signed 6x6 -> 12 multiplier (A=high 6 input bits, B=low 6). RTL in mult_synth.py: 8556 -> 5412. Verified bit-exact + CEC.",
@@ -42,11 +49,11 @@
     "flow_commands": ""
   },
   "reference_adp": 4900,
-  "ratio_vs_reference": 1.0286,
+  "ratio_vs_reference": 1.0045,
   "best": {
-    "area": 240,
-    "delay": 21,
-    "adp": 5040,
+    "area": 214,
+    "delay": 23,
+    "adp": 4922,
     "date": "2026-06-14"
   }
 }

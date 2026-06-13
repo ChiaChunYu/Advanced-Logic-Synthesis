@@ -131,7 +131,7 @@ python3 student/optimize.py --all \
 # is always safe and only adopts a strict improvement. ────────────────────────
 echo "=== Block D2: extra-long deepsyn on long-search-sensitive cases ==="
 python3 student/optimize.py \
-  --cases ex242 ex243 ex247 ex248 ex251 ex289 ex205 ex264 ex263 \
+  --cases ex242 ex243 ex247 ex248 ex249 ex251 ex262 ex289 ex205 ex264 ex263 \
   --strategies deepsyn \
   --timeout 600 --deepsyn-seconds 480 --seeds 0 42 7 11 --workers 6 --no-refresh
 
