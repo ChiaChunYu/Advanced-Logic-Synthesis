@@ -107,12 +107,12 @@ abc_refine --cases ex295 --case-workers 1
 echo "=== Block C: word-level semantic reconstruction ==="
 echo "[C1] fp8 RTL (ex240 e4m3 add, ex241 e4m3 mul, ex245 e5m2 add)"
 python3 student/fp8_synth.py
-echo "[C2] signed multiplier RTL (ex262 6x6, ex263 7x7, ex264 8x8)"
+echo "[C2] signed multiplier RTL (ex261 5x5, ex262 6x6, ex263 7x7, ex264 8x8)"
 python3 student/mult_synth.py
-echo "[C3] unsigned square RTL (ex270-274 = x^2)"
-python3 student/square_synth.py
-echo "[C4] integer isqrt RTL (ex275-279)"
+echo "[C3] integer isqrt RTL (ex279 16-bit)"
 python3 student/isqrt_synth.py
+# Note: square (ex270-274) and small mult/isqrt are identified but their RTL
+# loses to the structural AIG, so they are intentionally not run here.
 
 # ── Block D: final back-end sweep over every case ────────────────────────────
 # optimize.py applies the strongest equivalence-gated back-end search (broad

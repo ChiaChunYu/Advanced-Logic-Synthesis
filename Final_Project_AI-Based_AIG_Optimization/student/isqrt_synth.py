@@ -34,12 +34,19 @@ ABC        = ROOT / "student" / "abc"
 BENCHMARKS = ROOT / "benchmarks"
 OUTPUT     = ROOT / "output"
 
+# All of ex275-279 are integer isqrt (0-mismatch vs the non-restoring HW algo).
+# Only the widest (ex279, 16-bit) RTL beats the structural AIG; ex278 (14-bit)
+# and the smaller ones lose, so only ex279 is adopted into the pipeline. The
+# rest stay in IDENTIFIED_NONWINNING (documented, re-checkable via --case).
 IDENTIFIED: dict[str, int] = {
+    "ex279": 16,
+}
+
+IDENTIFIED_NONWINNING: dict[str, int] = {
     "ex275": 8,
     "ex276": 10,
     "ex277": 12,
     "ex278": 14,
-    "ex279": 16,
 }
 
 ABC_FLOWS = [
@@ -94,7 +101,7 @@ endmodule
 
 
 def synth_case(case: str, keep_tmp: bool = False) -> bool:
-    width = IDENTIFIED[case]
+    width = {**IDENTIFIED, **IDENTIFIED_NONWINNING}[case]
     verilog = verilog_isqrt(width)
     truth = BENCHMARKS / f"{case}.truth"
     aig = OUTPUT / f"{case}.aig"
@@ -177,10 +184,11 @@ def main() -> int:
     ap.add_argument("--case", action="append", default=None)
     ap.add_argument("--keep-tmp", action="store_true")
     args = ap.parse_args()
+    known = {**IDENTIFIED, **IDENTIFIED_NONWINNING}
     cases = args.case if args.case else list(IDENTIFIED)
     any_improved = False
     for case in cases:
-        if case not in IDENTIFIED:
+        if case not in known:
             print(f"{case}: not identified, skipping")
             continue
         if synth_case(case, args.keep_tmp):

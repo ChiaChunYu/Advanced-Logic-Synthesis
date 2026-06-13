@@ -34,7 +34,14 @@ ABC        = ROOT / "student" / "abc"
 BENCHMARKS = ROOT / "benchmarks"
 OUTPUT     = ROOT / "output"
 
-IDENTIFIED: dict[str, int] = {
+# ex270-274 are all unsigned squares (x^2), verified 0-mismatch, BUT the x*x
+# RTL loses to the existing structural AIG at every width tested (the BDD/ABC
+# result is already tight), so none are adopted into the pipeline. Kept in
+# IDENTIFIED_NONWINNING so they are documented and re-checkable via --case,
+# without wasting pipeline time on a synthesis that never wins.
+IDENTIFIED: dict[str, int] = {}
+
+IDENTIFIED_NONWINNING: dict[str, int] = {
     "ex270": 8,
     "ex271": 10,
     "ex272": 12,
@@ -73,7 +80,7 @@ endmodule
 
 
 def synth_case(case: str, keep_tmp: bool = False) -> bool:
-    width = IDENTIFIED[case]
+    width = {**IDENTIFIED, **IDENTIFIED_NONWINNING}[case]
     verilog = verilog_square(width)
     truth = BENCHMARKS / f"{case}.truth"
     aig = OUTPUT / f"{case}.aig"
@@ -156,10 +163,11 @@ def main() -> int:
     ap.add_argument("--case", action="append", default=None)
     ap.add_argument("--keep-tmp", action="store_true")
     args = ap.parse_args()
+    known = {**IDENTIFIED, **IDENTIFIED_NONWINNING}
     cases = args.case if args.case else list(IDENTIFIED)
     any_improved = False
     for case in cases:
-        if case not in IDENTIFIED:
+        if case not in known:
             print(f"{case}: not identified, skipping")
             continue
         if synth_case(case, args.keep_tmp):
