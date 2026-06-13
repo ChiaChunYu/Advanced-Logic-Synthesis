@@ -14,20 +14,27 @@
       "delay": 17,
       "adp": 115702,
       "prev_adp": 115804
+    },
+    {
+      "date": "2026-06-13",
+      "area": 6798,
+      "delay": 17,
+      "adp": 115566,
+      "prev_adp": 115702
     }
   ],
-  "notes": "",
+  "notes": "fp16 exp2(x)=2^x (7/7). FP16 unary.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "llm_mix_1",
     "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance"
   },
   "reference_adp": 105655,
-  "ratio_vs_reference": 1.0951,
+  "ratio_vs_reference": 1.0938,
   "best": {
-    "area": 6806,
+    "area": 6798,
     "delay": 17,
-    "adp": 115702,
+    "adp": 115566,
     "date": "2026-06-13"
   }
 }

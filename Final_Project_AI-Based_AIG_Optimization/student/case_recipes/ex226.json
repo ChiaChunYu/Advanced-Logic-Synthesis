@@ -14,20 +14,27 @@
       "delay": 19,
       "adp": 608931,
       "prev_adp": 608950
+    },
+    {
+      "date": "2026-06-13",
+      "area": 32033,
+      "delay": 19,
+      "adp": 608627,
+      "prev_adp": 608931
     }
   ],
-  "notes": "",
+  "notes": "fp16 sin(x) (7/7: sin(1)=0.841, sin(2)=0.909). FP16 unary.",
   "initial_synthesis": {
     "initial_method": "bdd_original",
     "flow_name": "ga_01",
     "flow_commands": "rewrite -z; refactor -z; dc2; rewrite -z; balance; balance; rewrite; balance"
   },
   "reference_adp": 587790,
-  "ratio_vs_reference": 1.036,
+  "ratio_vs_reference": 1.0354,
   "best": {
-    "area": 32049,
+    "area": 32033,
     "delay": 19,
-    "adp": 608931,
+    "adp": 608627,
     "date": "2026-06-13"
   }
 }

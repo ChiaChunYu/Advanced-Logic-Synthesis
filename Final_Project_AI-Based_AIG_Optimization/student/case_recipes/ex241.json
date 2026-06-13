@@ -21,6 +21,13 @@
       "delay": 29,
       "adp": 9019,
       "prev_adp": 10116
+    },
+    {
+      "date": "2026-06-13",
+      "area": 304,
+      "delay": 29,
+      "adp": 8816,
+      "prev_adp": 9019
     }
   ],
   "notes": "fp8 e4m3 MUL (same conventions as ex240). Semantic RTL: 10491 -> 10116. Verified bit-exact + CEC.",
@@ -30,11 +37,11 @@
     "flow_commands": "dc2; refactor -z; dc2; rewrite -z; balance"
   },
   "reference_adp": 7224,
-  "ratio_vs_reference": 1.2485,
+  "ratio_vs_reference": 1.2204,
   "best": {
-    "area": 311,
+    "area": 304,
     "delay": 29,
-    "adp": 9019,
+    "adp": 8816,
     "date": "2026-06-13"
   }
 }

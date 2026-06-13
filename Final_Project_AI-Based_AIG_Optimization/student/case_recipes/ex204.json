@@ -21,6 +21,13 @@
       "delay": 14,
       "adp": 21994,
       "prev_adp": 22022
+    },
+    {
+      "date": "2026-06-13",
+      "area": 1570,
+      "delay": 14,
+      "adp": 21980,
+      "prev_adp": 21994
     }
   ],
   "notes": "bf16 log2(x). Same LUT+normalize shape as ex224 fp16 log2 (deepsyn floored above the BDD result), so RTL likely will not win. Current ~22K.",
@@ -30,11 +37,11 @@
     "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
   },
   "reference_adp": 15180,
-  "ratio_vs_reference": 1.4489,
+  "ratio_vs_reference": 1.448,
   "best": {
-    "area": 1571,
+    "area": 1570,
     "delay": 14,
-    "adp": 21994,
+    "adp": 21980,
     "date": "2026-06-13"
   }
 }

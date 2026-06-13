@@ -21,6 +21,13 @@
       "delay": 16,
       "adp": 6704,
       "prev_adp": 6720
+    },
+    {
+      "date": "2026-06-13",
+      "area": 414,
+      "delay": 16,
+      "adp": 6624,
+      "prev_adp": 6704
     }
   ],
   "notes": "bf16 cube-root-like x^(1/k) (in 1->1, 2->1.258, 4->1.586), unconfirmed. Current 6,720 (mockturtle-improved).",
@@ -30,11 +37,11 @@
     "flow_commands": "rewrite -z; refactor -z; dc2; dc2; rewrite -z; refactor -z; balance"
   },
   "reference_adp": 5785,
-  "ratio_vs_reference": 1.1589,
+  "ratio_vs_reference": 1.145,
   "best": {
-    "area": 419,
+    "area": 414,
     "delay": 16,
-    "adp": 6704,
+    "adp": 6624,
     "date": "2026-06-13"
   }
 }

@@ -21,6 +21,13 @@
       "delay": 17,
       "adp": 68867,
       "prev_adp": 68901
+    },
+    {
+      "date": "2026-06-13",
+      "area": 4047,
+      "delay": 17,
+      "adp": 68799,
+      "prev_adp": 68867
     }
   ],
   "notes": "bf16 log10(x) = log2(x) * log10(2). Current ~69K (1.46x).",
@@ -30,11 +37,11 @@
     "flow_commands": "dc2; drw; drf; rewrite; dc2; rewrite; balance"
   },
   "reference_adp": 47128,
-  "ratio_vs_reference": 1.4613,
+  "ratio_vs_reference": 1.4598,
   "best": {
-    "area": 4051,
+    "area": 4047,
     "delay": 17,
-    "adp": 68867,
+    "adp": 68799,
     "date": "2026-06-13"
   }
 }

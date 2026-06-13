@@ -103,15 +103,30 @@ flow_opt --case ex295 --area-first-refine --timeout-per-case 180
 flow_opt --case ex295 --objective-guided-refine --objective-max-per-family 5
 abc_refine --cases ex295 --case-workers 1
 
-# ── Block C: word-level semantic reconstruction (fp8 + signed multipliers) ───
+# ── Block C: word-level semantic reconstruction (arithmetic RTL) ─────────────
 echo "=== Block C: word-level semantic reconstruction ==="
 echo "[C1] fp8 RTL (ex240 e4m3 add, ex241 e4m3 mul, ex245 e5m2 add)"
 python3 student/fp8_synth.py
 echo "[C2] signed multiplier RTL (ex262 6x6, ex263 7x7, ex264 8x8)"
 python3 student/mult_synth.py
+echo "[C3] unsigned square RTL (ex270-274 = x^2)"
+python3 student/square_synth.py
+echo "[C4] integer isqrt RTL (ex275-279)"
+python3 student/isqrt_synth.py
 
-# ── Block D: evaluate, verify no regression, refresh per-case records ────────
-echo "=== Block D: evaluate + verify + record ==="
+# ── Block D: final back-end sweep over every case ────────────────────────────
+# optimize.py applies the strongest equivalence-gated back-end search (broad
+# ABC flows, truth re-synthesis, &my_deepsyn ADP/area Pareto, and mockturtle
+# structural resynthesis) to all 100 cases. It only ever replaces a case's
+# output AIG with a CEC-verified, strictly-lower-ADP result, so re-running it
+# is safe and reproduces the gains that were found interactively.
+echo "=== Block D: final back-end sweep (optimize.py --all) ==="
+python3 student/optimize.py --all \
+  --strategies flows resynth deepsyn mockturtle \
+  --timeout 200 --deepsyn-seconds 90 --seeds 0 42 --workers 6 --no-refresh
+
+# ── Block E: evaluate, verify no regression, refresh per-case records ────────
+echo "=== Block E: evaluate + verify + record ==="
 python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
 python3 student/verify_reproduce.py
 python3 student/recipe_store.py --refresh

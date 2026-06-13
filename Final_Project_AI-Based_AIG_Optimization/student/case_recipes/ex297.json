@@ -14,6 +14,13 @@
       "delay": 17,
       "adp": 500140,
       "prev_adp": 500293
+    },
+    {
+      "date": "2026-06-13",
+      "area": 29419,
+      "delay": 17,
+      "adp": 500123,
+      "prev_adp": 500140
     }
   ],
   "notes": "14in/14out, distinct=6660. deepsyn 300s: 0 gain. Not obviously arithmetic. TA 226K vs our 500K. UNCRACKED.",
@@ -28,11 +35,11 @@
     "flow_commands": "dc2; drw; drf; rewrite; dc2; balance"
   },
   "reference_adp": 225900,
-  "ratio_vs_reference": 2.214,
+  "ratio_vs_reference": 2.2139,
   "best": {
-    "area": 29420,
+    "area": 29419,
     "delay": 17,
-    "adp": 500140,
+    "adp": 500123,
     "date": "2026-06-13"
   }
 }

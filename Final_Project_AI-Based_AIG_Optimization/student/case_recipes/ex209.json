@@ -7,6 +7,13 @@
       "delay": 12,
       "adp": 8520,
       "prev_adp": null
+    },
+    {
+      "date": "2026-06-13",
+      "area": 709,
+      "delay": 12,
+      "adp": 8508,
+      "prev_adp": 8520
     }
   ],
   "notes": "bf16 tanh(x). Sigmoid family (exp + divide) -> deep RTL. Current ~8.5K.",
@@ -16,11 +23,11 @@
     "flow_commands": "dc2; drw; rewrite -z; rewrite; dc2; balance"
   },
   "reference_adp": 7320,
-  "ratio_vs_reference": 1.1639,
+  "ratio_vs_reference": 1.1623,
   "best": {
-    "area": 710,
+    "area": 709,
     "delay": 12,
-    "adp": 8520,
+    "adp": 8508,
     "date": "2026-06-13"
   }
 }
