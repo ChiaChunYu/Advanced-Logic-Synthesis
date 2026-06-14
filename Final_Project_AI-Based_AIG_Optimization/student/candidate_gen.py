@@ -50,7 +50,7 @@ from blif_builder import (
     wrap_inverted_blif_outputs,
 )
 from abc_core import abc_path, run_abc
-from exact_function_recognition import (
+from circuit_analysis import (
     ExactFunctionMatch,
     exact_matches_for_truth,
 )

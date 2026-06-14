@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from boolean_fingerprint import TruthTable
+from circuit_analysis import TruthTable
 
 PS_RE = re.compile(r"and\s*=\s*(\d+)\s+lev\s*=\s*(\d+)")
 

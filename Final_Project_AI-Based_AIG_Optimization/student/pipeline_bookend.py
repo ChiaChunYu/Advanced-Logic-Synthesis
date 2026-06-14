@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Per-case optimization recipe store.
+"""Pipeline bookend utilities: verification and per-case recipe management.
 
-Maintains student/case_recipes/<case>.json — one JSON per case recording:
-  - circuit classification (family labels, recommended strategy)
-  - current best result (area / delay / ADP) and reference comparison
-  - the winning synthesis method when known (mined from pipeline logs)
-  - an append-only history of measured improvements over time
-  - free-text notes (hand-editable; preserved across refreshes)
+Two subcommands:
+  verify  -- check every output AIG against its truth table (ABC CEC),
+             compare ADP to recorded best, report regressions.
+  recipe  -- maintain student/case_recipes/<case>.json with classification,
+             best ADP, winning synthesis method, and append-only history.
 
-Usage (from project root, inside WSL):
-  python3 student/recipe_store.py --refresh    # update recipes from output/ + logs
-  python3 student/recipe_store.py --summary    # print per-case table sorted by ratio
+Usage:
+  python3 student/pipeline_bookend.py verify
+  python3 student/pipeline_bookend.py verify --update
+  python3 student/pipeline_bookend.py recipe --refresh
+  python3 student/pipeline_bookend.py recipe --summary
 """
 from __future__ import annotations
 
@@ -18,22 +19,115 @@ import argparse
 import csv
 import datetime as _dt
 import json
+import shutil
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT        = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "student"))
 
-from abc_core import measure_adp
+from abc_core import is_equivalent, measure_adp
 
 ABC         = ROOT / "student" / "abc"
 BENCHMARKS  = ROOT / "benchmarks"
 OUTPUT      = ROOT / "output"
+BEST_OUTPUT = ROOT / "best_output"
 LOGS        = ROOT / "student" / "logs"
 RECIPES     = ROOT / "student" / "case_recipes"
 ALL_CASES   = [f"ex{i}" for i in range(200, 300)]
 
 
+# =============================================================================
+# Section 1: Verify Reproduce
+# =============================================================================
+def _load_ref() -> dict[str, int]:
+    ref: dict[str, int] = {}
+    path = ROOT / "reference_result.csv"
+    if path.exists():
+        with open(path) as f:
+            for row in csv.DictReader(f):
+                ref[row["case"]] = int(row["adp"])
+    return ref
+
+
+def _cmd_verify() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--update", action="store_true",
+                        help="copy strict improvements from output/ into best_output/")
+    args = parser.parse_args()
+
+    ref = _load_ref()
+    BEST_OUTPUT.mkdir(parents=True, exist_ok=True)
+
+    failures: list[str] = []
+    improved: list[str] = []
+    total_out = 0
+    total_best = 0
+
+    print(f"{'case':<7} {'output ADP':>12} {'best ADP':>12} {'ref ADP':>12}  status")
+    print("-" * 60)
+    for case in ALL_CASES:
+        truth = BENCHMARKS / f"{case}.truth"
+        out_aig = OUTPUT / f"{case}.aig"
+        best_aig = BEST_OUTPUT / f"{case}.aig"
+
+        if not truth.is_file():
+            continue
+        if not out_aig.is_file():
+            failures.append(f"{case}: missing output AIG")
+            print(f"{case:<7} {'MISSING':>12}")
+            continue
+
+        if not is_equivalent(ABC, truth, out_aig, 180, ROOT):
+            failures.append(f"{case}: output AIG NOT equivalent")
+            print(f"{case:<7} {'NOT_EQUIV':>12}")
+            continue
+
+        _, _, out_adp = measure_adp(ABC, out_aig, 120, ROOT)
+        best_adp = None
+        if best_aig.is_file():
+            try:
+                _, _, best_adp = measure_adp(ABC, best_aig, 120, ROOT)
+            except Exception:
+                best_adp = None
+
+        status = "ok"
+        if best_adp is None:
+            status = "new"
+            if args.update:
+                shutil.copyfile(out_aig, best_aig)
+                improved.append(case)
+        elif out_adp > best_adp:
+            status = f"REGRESSION (+{out_adp - best_adp})"
+            failures.append(f"{case}: output ADP {out_adp} > best {best_adp}")
+        elif out_adp < best_adp:
+            status = f"improved (-{best_adp - out_adp})"
+            if args.update:
+                shutil.copyfile(out_aig, best_aig)
+                improved.append(case)
+
+        total_out += out_adp
+        total_best += best_adp if best_adp is not None else out_adp
+        ref_str = f"{ref.get(case, 0):>12,}" if case in ref else f"{'-':>12}"
+        print(f"{case:<7} {out_adp:>12,} {(best_adp or 0):>12,} {ref_str}  {status}")
+
+    print("-" * 60)
+    print(f"Total output ADP: {total_out:,}   total best ADP: {total_best:,}")
+    if improved:
+        print(f"Updated best_output for {len(improved)} cases: {', '.join(improved)}")
+    if failures:
+        print(f"\nFAILURES ({len(failures)}):")
+        for f in failures:
+            print(f"  {f}")
+        return 1
+    print("\nAll cases reproduced at or better than best_output.")
+    return 0
+
+
+
+# =============================================================================
+# Section 2: Recipe Store
+# =============================================================================
 def _load_reference() -> dict[str, int]:
     ref: dict[str, int] = {}
     path = ROOT / "reference_result.csv"
@@ -162,7 +256,7 @@ def summary() -> None:
           f"overall ratio: {total_adp / total_ref:.4f}   beating reference: {beating}/{len(rows)}")
 
 
-def main() -> int:
+def _cmd_recipe() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--refresh", action="store_true")
     parser.add_argument("--summary", action="store_true")
@@ -175,6 +269,30 @@ def main() -> int:
         refresh()
         summary()
     return 0
+
+
+
+# =============================================================================
+# Combined CLI
+# =============================================================================
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p_v = sub.add_parser("verify", help="verify output/ AIGs against truth tables")
+    p_v.add_argument("--update", action="store_true",
+                     help="copy strict improvements into best_output/")
+
+    p_r = sub.add_parser("recipe", help="manage per-case JSON recipes")
+    p_r.add_argument("--refresh", action="store_true", help="update recipes from output/ + logs")
+    p_r.add_argument("--summary", action="store_true", help="print per-case table sorted by ratio")
+
+    args = ap.parse_args()
+    if args.cmd == "verify":
+        return _cmd_verify(args)
+    return _cmd_recipe(args)
 
 
 if __name__ == "__main__":

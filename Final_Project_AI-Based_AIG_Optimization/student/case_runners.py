@@ -36,7 +36,7 @@ from blif_builder import (
     semantic_split_specs,
     shared_bdd_order_specs,
 )
-from boolean_fingerprint import fingerprint_case, format_fingerprint, append_classification_csv
+from circuit_analysis import fingerprint_case, format_fingerprint, append_classification_csv
 from candidate_gen import (
     InitialCandidate,
     make_circuit_type_seed_candidates,
@@ -50,7 +50,7 @@ from candidate_gen import (
     _write_pareto_candidates_from_results,
     choose_candidate_pairs,
 )
-from exact_function_recognition import (
+from circuit_analysis import (
     ExactFunctionMatch,
     exact_matches_for_truth,
     format_exact_matches,

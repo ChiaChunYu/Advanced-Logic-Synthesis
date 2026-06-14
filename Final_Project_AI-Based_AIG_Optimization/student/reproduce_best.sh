@@ -47,8 +47,8 @@ python3 student/flow_optimizer.py \
   --output output \
   --logs student/logs
 
-abc_refine() {  # refine_close.py with the standard --workers/--max-ratio tail
-  python3 student/refine_close.py "$@" --workers 4 --max-ratio 99
+abc_refine() {  # post_optimize.py refine with the standard --workers/--max-ratio tail
+  python3 student/post_optimize.py refine "$@" --workers 4 --max-ratio 99
 }
 
 flow_opt() {    # flow_optimizer.py single-case helper with the standard paths
@@ -78,14 +78,14 @@ done
 # ── Block B: back-end flow refinement (equivalence-gated, ADP-only) ──────────
 echo "=== Block B: back-end flow refinement (was stage 20-28) ==="
 
-echo "[B1] global refine_close over all above-reference cases"
+echo "[B1] global flow refinement over all above-reference cases"
 abc_refine --case-workers 8
 
 echo "[B2] cleanup of the case improved by the global sweep (ex262)"
 abc_refine --cases ex262 --case-workers 1
 
 echo "[B3] area-first &my_deepsyn pass for high-ratio cases"
-python3 student/advanced_synthesis.py --mode deepsyn
+python3 student/post_optimize.py advanced --mode deepsyn
 
 echo "[B4] cleanup after the area-first pass (ex219 ex247 ex261)"
 for case in ex219 ex247 ex261; do
@@ -93,7 +93,7 @@ for case in ex219 ex247 ex261; do
 done
 
 echo "[B5] decoded semantic probe + ex261 cleanup"
-python3 student/advanced_synthesis.py --mode semantic --case ex261
+python3 student/post_optimize.py advanced --mode semantic --case ex261
 abc_refine --cases ex261 --case-workers 1
 
 echo "[B6] ex295 guarded cleanup tail (Pareto -> refine -> area-first -> objective)"
@@ -138,5 +138,5 @@ python3 student/optimize.py \
 # ── Block E: evaluate, verify no regression, refresh per-case records ────────
 echo "=== Block E: evaluate + verify + record ==="
 python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
-python3 student/verify_reproduce.py
-python3 student/recipe_store.py --refresh
+python3 student/pipeline_bookend.py verify
+python3 student/pipeline_bookend.py recipe --refresh

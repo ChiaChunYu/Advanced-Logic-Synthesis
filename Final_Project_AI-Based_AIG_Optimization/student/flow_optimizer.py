@@ -28,8 +28,10 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 sys.path.insert(0, str(Path(__file__).parent))
 
-from boolean_fingerprint import append_classification_csv, fingerprint_case, format_fingerprint
-from exact_function_recognition import (
+from circuit_analysis import (
+    append_classification_csv,
+    fingerprint_case,
+    format_fingerprint,
     ExactFunctionMatch,
     exact_matches_for_truth,
     format_exact_matches,
