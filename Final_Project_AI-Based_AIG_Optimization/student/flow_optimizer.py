@@ -452,13 +452,13 @@ REPRODUCE_RECIPE = [
     (
         "1",
         "all_case_hybrid_synthesis",
-        "Run the hybrid initial generators and fixed ABC post-flow portfolio on every case.",
-        f"all cases, max_candidates={REPRODUCE_MAIN_MAX_CANDIDATES}, seed={REPRODUCE_SEED}",
+        "全部 100 case 並行初始合成：多種前端（abc_truth/BDD/Shannon/SOP/exact structural）× ABC post-flow 組合，選 ADP 最低候選。",
+        f"max_candidates={REPRODUCE_MAIN_MAX_CANDIDATES}, seed={REPRODUCE_SEED}",
     ),
     (
         "2",
         "focused_template_ranges",
-        "Revisit exact arithmetic (multiplier/square), divider quotient, and square-root template ranges.",
+        "針對算術電路範圍（乘法器/平方/除法/開根號）用更多候選重跑，提高 exact structural 命中率。",
         ", ".join(
             f"{s}-{e}"
             for s, e in list(_INITIAL_CFG.arithmetic_ranges) + [_INITIAL_CFG.divider_range, _INITIAL_CFG.sqrt_range]
@@ -467,29 +467,28 @@ REPRODUCE_RECIPE = [
     (
         "3",
         "diagnosis_rescue",
-        "Run bounded rescue on known diagnosis-sensitive cases using complement and history-guided GA.",
+        "對診斷敏感 case（ex252）用 complement wrapper 和 history-guided GA 做高候選數救援合成。",
         ", ".join(_INITIAL_CFG.rescue_cases),
     ),
     (
         "4",
         "polish_and_sweep_convergence",
-        "Run fixed deterministic polish packages then sweep packages until convergence.",
+        "固定 polish flow 套件 + sweep 套件反覆執行直到 ADP 收斂（early-stop）。",
         (
             f"polish: up to {_REFINE_CFG.polish_passes} passes; "
-            f"sweep: up to {_REFINE_CFG.sweep_passes + _REFINE_CFG.final_sweep_passes} passes; "
-            "focused front-range sweep; all stop early on convergence"
+            f"sweep: up to {_REFINE_CFG.sweep_passes + _REFINE_CFG.final_sweep_passes} passes"
         ),
     ),
     (
         "5",
         "mockturtle_structural",
-        "Fingerprint-guided mockturtle structural resynthesis; xag_xor_heavy and roundtrip_xag are always tried for large/high-delay cases.",
+        "Fingerprint 導引的 mockturtle 結構式重合成（AIG/XAG/MIG），大型高延遲 case 強制嘗試 xag_xor_heavy 和 roundtrip_xag。",
         f"timeout_per_case={_REFINE_CFG.final_advanced_mockturtle_timeout}, max_modes=4",
     ),
     (
         "6",
         "type_and_objective_guided_refinement",
-        "Run circuit-family type-guided and area/delay/balanced objective-guided refinement on every case.",
+        "電路族群類型導引精修（根據 fingerprint 選 flow）+ 面積/延遲/平衡三方向 objective 導引精修。",
         (
             f"type: max_flows={_REFINE_CFG.type_guided_max_flows}, timeout={_REFINE_CFG.type_guided_timeout}; "
             f"objective: max_per_family={_REFINE_CFG.objective_max_per_family}, timeout={_REFINE_CFG.objective_guided_timeout}"
@@ -498,86 +497,77 @@ REPRODUCE_RECIPE = [
     (
         "7",
         "micro_and_small_case_refinement",
-        "Run micro-guided low-cost flows then the small-case targeted package on every case.",
+        "Micro-guided 低成本 flow（resubstitution 系列）+ 小電路專用精修套件（area 或 ADP 低於門檻的 case）。",
         (
             f"micro: max_flows={_REFINE_CFG.micro_max_flows}, timeout={_REFINE_CFG.micro_guided_timeout}; "
-            f"small: max_flows={_REFINE_CFG.small_case_max_flows}, timeout={_REFINE_CFG.small_case_timeout}, "
-            f"area<={_REFINE_CFG.small_case_area_threshold} or adp<={_REFINE_CFG.small_case_adp_threshold}"
+            f"small: area<={_REFINE_CFG.small_case_area_threshold} or adp<={_REFINE_CFG.small_case_adp_threshold}"
         ),
     ),
     (
         "8",
         "truth_table_structural_resynthesis",
-        "Build shared BDD/MUX structures with ABC ttopt, then apply deterministic level-preserving transduction.",
-        f"all cases, timeout_per_case={_STRUCT_CFG.ttopt_structural_timeout}, fixed output groups only",
+        "用 ABC &ttopt 從真值表建 shared BDD/MUX 結構，再做 level-preserving transduction 降 area。",
+        f"timeout_per_case={_STRUCT_CFG.ttopt_structural_timeout}",
     ),
     (
         "9",
         "deepsyn_and_pareto_area_structural",
-        "Bounded deepsyn LUT map/unmap, then area-Pareto structural search for large equal-width bottlenecks.",
+        "有界 &deepsyn LUT map/unmap 結構式重合成，接著對大型等寬向量電路做 area-Pareto 搜尋。",
         (
-            f"deepsyn: seed={_STRUCT_CFG.seed}, seconds={_STRUCT_CFG.deepsyn_structural_seconds}, "
-            f"max_passes={_STRUCT_CFG.deepsyn_structural_passes}; "
-            f"pareto: seed={_STRUCT_CFG.seed}, seconds={_STRUCT_CFG.pareto_area_seconds}, "
-            f"area>={_STRUCT_CFG.pareto_area_min_area}"
+            f"deepsyn: {_STRUCT_CFG.deepsyn_structural_seconds}s x {_STRUCT_CFG.deepsyn_structural_passes} passes; "
+            f"pareto: {_STRUCT_CFG.pareto_area_seconds}s, area>={_STRUCT_CFG.pareto_area_min_area}"
         ),
     ),
     (
         "10",
         "compact_vector_pareto_and_adaptive_probe",
-        "Compact low-degree vector Pareto fixed-point, then adaptive probe expansion for remaining compact cases.",
+        "低 ANF 次數緊湊向量電路的 area-Pareto 不動點搜尋，再對剩餘 case 做 adaptive probe 確認有改善才做完整搜尋。",
         (
-            f"compact: max_passes={_STRUCT_CFG.compact_pareto_passes}, seconds={_STRUCT_CFG.compact_pareto_seconds}; "
+            f"compact: {_STRUCT_CFG.compact_pareto_passes} passes, {_STRUCT_CFG.compact_pareto_seconds}s; "
             f"adaptive: probe={_STRUCT_CFG.vector_probe_seconds}s, refine={_STRUCT_CFG.vector_refine_seconds}s"
         ),
     ),
     (
         "11",
         "long_large_alternate_seed_structural",
-        "For remaining large equal-width vector bottlenecks, regenerate topology from truth tables with a long Pareto budget.",
+        "大型等寬向量瓶頸 case：從真值表用長時間 ttopt 重建拓樸，只有 probe 確認改善才做完整 Pareto 搜尋。",
         (
             f"ttopt_rounds={_STRUCT_CFG.long_large_ttopt_rounds}, "
-            f"probe={_STRUCT_CFG.long_large_probe_seconds}s, "
-            f"refine={_STRUCT_CFG.long_large_refine_seconds}s (only after improving probe)"
+            f"probe={_STRUCT_CFG.long_large_probe_seconds}s → refine={_STRUCT_CFG.long_large_refine_seconds}s"
         ),
     ),
     (
         "12",
         "yosys_mockturtle_hybrid_structural",
-        "Safe symbol-free AIGER bridge into Yosys AIG remap, then fingerprint-selected mockturtle from improved seeds.",
+        "Yosys AIG remap（無符號 AIGER bridge）→ fingerprint 選擇的 mockturtle 從改善後的 seed 繼續搜尋。",
         (
-            f"all cases, timeout_per_case={_STRUCT_CFG.hybrid_structural_timeout}, "
+            f"timeout_per_case={_STRUCT_CFG.hybrid_structural_timeout}, "
             f"mockturtle_workers={_STRUCT_CFG.hybrid_workers}"
         ),
     ),
     (
         "13",
         "area_first_refine",
-        "Apply area-aggressive ABC flows (resub, dc2, fraig, dch/if-K3, sopb) to all cases until convergence.",
+        "面積優先 ABC flow 套件（resub/dc2/fraig/dch/if-K3/sopb）反覆執行到收斂。",
         (
             f"max_passes={_CONV_CFG.area_first_passes}, "
-            f"timeout_per_case={_CONV_CFG.area_first_timeout}, stops early on convergence"
+            f"timeout_per_case={_CONV_CFG.area_first_timeout}"
         ),
     ),
     (
         "14",
         "my_deepsyn_all_case_sweep",
-        "Two-pass &my_deepsyn -C area Pareto sweep with ratio-aware budget. "
-        "Pass 1 (base 60s + bonus for high-ratio cases) covers all cases >= 500 area; "
-        "Pass 2 (180s) gives a longer budget to cases >= 2000 area.",
+        "兩段式 &my_deepsyn area-Pareto 全 case 掃描。Pass 1 覆蓋 area>=500 的 case，高比值 case 額外加時；Pass 2 對 area>=2000 的 case 給更長搜尋時間。",
         (
-            f"pass1: area>={_CONV_CFG.my_deepsyn_pass1_min_area}, "
-            f"base_seconds={_CONV_CFG.my_deepsyn_pass1_seconds}, "
-            f"high_ratio(>={_CONV_CFG.ratio_tier_high_threshold}x)+{_CONV_CFG.ratio_tier_high_extra}s, "
-            f"mid_ratio(>={_CONV_CFG.ratio_tier_mid_threshold}x)+{_CONV_CFG.ratio_tier_mid_extra}s, max_rounds=3; "
-            f"pass2: area>={_CONV_CFG.my_deepsyn_pass2_min_area}, "
-            f"seconds={_CONV_CFG.my_deepsyn_pass2_seconds}"
+            f"pass1: area>={_CONV_CFG.my_deepsyn_pass1_min_area}, base={_CONV_CFG.my_deepsyn_pass1_seconds}s, "
+            f"high_ratio(>={_CONV_CFG.ratio_tier_high_threshold}x)+{_CONV_CFG.ratio_tier_high_extra}s; "
+            f"pass2: area>={_CONV_CFG.my_deepsyn_pass2_min_area}, {_CONV_CFG.my_deepsyn_pass2_seconds}s"
         ),
     ),
     (
         "15",
         "case_fair_final_refinement",
-        "Give every case the same final objective/micro/small/complement package before fixed-point convergence.",
+        "每個 case 平等執行一輪 objective/micro/small/complement 套件，確保沒有 case 被跳過，再收斂。",
         (
             f"timeout_per_case={_CONV_CFG.case_fair_timeout}, "
             f"stage_timeout={REPRODUCE_CASE_FAIR_STAGE_TIMEOUT}, "
@@ -587,24 +577,21 @@ REPRODUCE_RECIPE = [
     (
         "16",
         "final_micro_and_gia_convergence",
-        "Interleaved micro-guided resubstitution and GIA canonical cleanup until no further ADP improvement.",
+        "Micro-guided resubstitution 和 GIA canonical cleanup 交替執行直到 ADP 不再下降（early-stop）。",
         (
             f"max_passes={_CONV_CFG.micro_convergence_passes}, "
             f"micro_timeout={_CONV_CFG.micro_convergence_timeout}, "
-            f"gia_timeout={_CONV_CFG.gia_canonical_timeout}, stops early on convergence"
+            f"gia_timeout={_CONV_CFG.gia_canonical_timeout}"
         ),
     ),
     (
         "17",
         "targeted_ratio_push",
-        f"Dynamic: measure all-case ADP ratios vs reference, run rescue package on every case above "
-        f"{_PUSH_CFG.ratio_threshold}x. Pareto search added for known hard cases.",
+        f"動態量測所有 case 的 ADP/reference 比值，對超過 {_PUSH_CFG.ratio_threshold}x 的 case 執行完整救援套件（type/objective/micro/Pareto）。",
         (
-            f"ratio_threshold={_PUSH_CFG.ratio_threshold}x (dynamic, measured at runtime); "
-            f"area/type/objective timeout={_PUSH_CFG.timeout}; "
-            f"micro_timeout={_PUSH_CFG.micro_timeout}; "
-            f"pareto_cases={','.join(_PUSH_CFG.pareto_cases)}, "
-            f"pareto_seconds={_PUSH_CFG.pareto_seconds}"
+            f"ratio_threshold={_PUSH_CFG.ratio_threshold}x; "
+            f"timeout={_PUSH_CFG.timeout}; "
+            f"pareto_cases={','.join(_PUSH_CFG.pareto_cases)}, pareto_seconds={_PUSH_CFG.pareto_seconds}"
         ),
     ),
 ]
@@ -1763,6 +1750,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--small-max-flows", type=int, default=5, help="maximum small-case refinement flows per selected case")
     parser.add_argument("--small-area-threshold", type=int, default=2500, help="treat current outputs with area at or below this as small cases")
     parser.add_argument("--small-adp-threshold", type=int, default=50000, help="treat current outputs with ADP at or below this as small cases")
+    # Block D optimizer (merged from optimize.py)
+    parser.add_argument("--optimize", action="store_true", help="run Block D equivalence-gated backend sweep (flows/resynth/deepsyn/mockturtle)")
+    parser.add_argument("--strategies", nargs="*", default=["flows", "resynth", "deepsyn", "mockturtle"],
+                        help="subset/order of Block D strategies")
+    parser.add_argument("--deepsyn-seconds", type=int, default=90, help="per-seed &my_deepsyn seconds for --optimize")
+    parser.add_argument("--seeds", type=int, nargs="*", default=[0, 42], help="random seeds for --optimize deepsyn")
+    parser.add_argument("--workers", type=int, default=6, help="parallel workers for --optimize")
+    parser.add_argument("--above-ratio", type=float, default=None,
+                        help="--optimize: only cases with ADP/reference >= this ratio")
+    parser.add_argument("--no-refresh", action="store_true", help="skip recipe refresh after --optimize")
     return parser.parse_args()
 
 
@@ -1807,6 +1804,195 @@ def run_verify_final(args: argparse.Namespace, root: Path, write_final_summary: 
 
 
 # ---------------------------------------------------------------------------
+# Block D optimizer (merged from optimize.py)
+# Equivalence-gated, rollback-safe per-case backend sweep.
+# Strategies: resynth | flows | deepsyn | mockturtle
+# ---------------------------------------------------------------------------
+
+_OPT_LARGE_CASES = {"ex297", "ex299", "ex226", "ex206", "ex220", "ex221", "ex222", "ex230"}
+
+_OPT_ABC_FLOWS = [
+    ("dc2x3",    "dc2; dc2; dc2; balance"),
+    ("rwz_rfz",  "rewrite -z; refactor -z; dc2; rewrite -z; refactor -z; balance"),
+    ("syn2",     "&get; &syn2 -J 8; &put; balance"),
+    ("syn3",     "&get; &syn3; &put; balance"),
+    ("dch",      "&get; &dch; &put; balance"),
+    ("dch_syn2", "&get; &dch; &syn2 -J 8; &put; balance"),
+    ("dc2_syn2", "dc2; &get; &syn2 -J 8; &put; dc2; balance"),
+    ("resub_dc2","resub -K 8; dc2; rewrite -z; balance"),
+    ("fraig_dc2","fraig; dc2; rewrite -z; balance"),
+    ("mfs",      "dc2; &get; &mfs; &put; balance"),
+    ("mfs_w4",   "&get; &dch; &mfs -W 4; &put; dc2; balance"),
+    ("dc2_mfs",  "dc2; &get; &mfs -W 4 -M 5000; &put; dc2; balance"),
+    ("mfs_w6",   "&get; &mfs -W 6 -M 8000; &put; dc2; balance"),
+    ("dchf_mfs", "&get; &dch -f; &mfs; &put; dc2; balance"),
+]
+
+
+def _opt_cur_adp(case: str, output: Path, abc: Path, root: Path) -> int | None:
+    aig = output / f"{case}.aig"
+    if not aig.is_file():
+        return None
+    try:
+        return measure_adp(abc, aig, 60, root)[2]
+    except Exception:
+        return None
+
+
+def _opt_adopt(case: str, cand: Path, best: int, abc: Path, benchmarks: Path, output: Path, root: Path) -> tuple[bool, int]:
+    try:
+        _, _, adp = measure_adp(abc, cand, 60, root)
+    except Exception:
+        return False, best
+    if adp >= best:
+        return False, best
+    if not is_equivalent(abc, benchmarks / f"{case}.truth", cand, 180, root):
+        return False, best
+    import shutil as _shutil
+    _shutil.copyfile(cand, output / f"{case}.aig")
+    return True, adp
+
+
+def _opt_strat_resynth(case: str, best: int, abc: Path, benchmarks: Path, output: Path, logs: Path, root: Path, timeout: int) -> int:
+    try:
+        optimize_case(
+            case, abc, benchmarks, output, logs / "tmp_optimize",
+            120, 0, timeout, root,
+            use_ga=True, use_bdd=True, use_polish=True, try_complement=True,
+        )
+    except Exception as exc:
+        print(f"  [{case}] resynth error: {exc}", flush=True)
+    return _opt_cur_adp(case, output, abc, root) or best
+
+
+def _opt_strat_flows(case: str, best: int, abc: Path, benchmarks: Path, output: Path, root: Path, timeout: int) -> int:
+    import tempfile as _tempfile, shutil as _shutil
+    aig = output / f"{case}.aig"
+    with _tempfile.TemporaryDirectory(prefix=f"opt_{case}_") as tmp_str:
+        tmp = Path(tmp_str)
+        for name, flow in _OPT_ABC_FLOWS:
+            cand = tmp / f"{case}_{name}.aig"
+            try:
+                run_abc_script(abc, f'read_aiger "{aig}"; {flow}; write_aiger -s "{cand}"', timeout)
+            except Exception:
+                continue
+            adopted, best = _opt_adopt(case, cand, best, abc, benchmarks, output, root)
+            if adopted:
+                print(f"  [{case}] flows/{name}: ADP={best:,}", flush=True)
+    return best
+
+
+def _opt_strat_deepsyn(case: str, best: int, abc: Path, benchmarks: Path, output: Path, root: Path, seconds: int, seeds: list[int]) -> int:
+    import tempfile as _tempfile
+    aig = output / f"{case}.aig"
+    with _tempfile.TemporaryDirectory(prefix=f"opt_ds_{case}_") as tmp_str:
+        tmp = Path(tmp_str)
+        for cost in ("adp", "area"):
+            for seed in seeds:
+                pareto = tmp / f"p_{cost}_{seed}"
+                pareto.mkdir(parents=True, exist_ok=True)
+                try:
+                    run_abc_script(
+                        abc,
+                        f'read_aiger "{aig}"; dc2; dc2; '
+                        f'&get; &my_deepsyn -T {seconds} -S {seed} -O "{pareto}" -C {cost}; &put',
+                        seconds + 120,
+                    )
+                except Exception:
+                    continue
+                for cand in sorted(pareto.glob("*.aig")):
+                    adopted, best = _opt_adopt(case, cand, best, abc, benchmarks, output, root)
+                    if adopted:
+                        print(f"  [{case}] deepsyn/{cost}/{seed}: ADP={best:,}", flush=True)
+    return best
+
+
+def _opt_strat_mockturtle(case: str, best: int, abc: Path, benchmarks: Path, output: Path, logs: Path, root: Path, timeout: int, mockturtle_bin: Path) -> int:
+    import shutil as _shutil
+    if not mockturtle_bin.is_file():
+        return best
+    backup = logs / f"opt_mt_{case}.aig"
+    _shutil.copyfile(output / f"{case}.aig", backup)
+    try:
+        run_mockturtle_structural_case(
+            case, abc, benchmarks, output, logs,
+            timeout_per_case=timeout, root=root,
+            mockturtle_bin=mockturtle_bin, max_modes=4, exact_max_inputs=12,
+        )
+    except Exception as exc:
+        print(f"  [{case}] mockturtle error: {exc}", flush=True)
+    new = _opt_cur_adp(case, output, abc, root) or best
+    if new > best:
+        _shutil.copyfile(backup, output / f"{case}.aig")
+        return best
+    return new
+
+
+def run_block_d_optimize(
+    cases: list[str],
+    abc: Path,
+    benchmarks: Path,
+    output: Path,
+    logs: Path,
+    root: Path,
+    strategies: list[str],
+    timeout: int = 200,
+    deepsyn_seconds: int = 90,
+    seeds: list[int] | None = None,
+    workers: int = 6,
+    mockturtle_bin: Path | None = None,
+) -> None:
+    """Block D backend sweep: equivalence-gated, rollback-safe, parallel.
+
+    Usage (from reproduce_best.sh):
+      python3 student/flow_optimizer.py --optimize --all \\
+        --strategies flows resynth deepsyn mockturtle \\
+        --timeout 200 --deepsyn-seconds 90 --seeds 0 42 --workers 6
+    """
+    if seeds is None:
+        seeds = [0, 42]
+    if mockturtle_bin is None:
+        mockturtle_bin = root / "student" / "mockturtle_opt" / "mockturtle_opt"
+
+    def _one(case: str) -> dict:
+        if not (output / f"{case}.aig").is_file():
+            return {"case": case, "start": None, "final": None}
+        start = _opt_cur_adp(case, output, abc, root)
+        best = start
+        print(f"[{case}] start ADP={start:,}", flush=True)
+        for name in strategies:
+            if name == "resynth":
+                best = _opt_strat_resynth(case, best, abc, benchmarks, output, logs, root, timeout)
+            elif name == "flows":
+                best = _opt_strat_flows(case, best, abc, benchmarks, output, root, min(timeout, 120))
+            elif name == "deepsyn":
+                best = _opt_strat_deepsyn(case, best, abc, benchmarks, output, root, deepsyn_seconds, seeds)
+            elif name == "mockturtle":
+                best = _opt_strat_mockturtle(case, best, abc, benchmarks, output, logs, root, min(timeout, 240), mockturtle_bin)
+        if best < start:
+            print(f"[{case}] {start:,} -> {best:,} (-{start - best:,})", flush=True)
+        return {"case": case, "start": start, "final": best}
+
+    small = [c for c in cases if c not in _OPT_LARGE_CASES]
+    large = [c for c in cases if c in _OPT_LARGE_CASES]
+    results = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = {pool.submit(_one, c): c for c in small}
+        for f in as_completed(futs):
+            results.append(f.result())
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futs = {pool.submit(_one, c): c for c in large}
+        for f in as_completed(futs):
+            results.append(f.result())
+
+    improved = [r for r in results if r["start"] and r["final"] and r["final"] < r["start"]]
+    saved = sum(r["start"] - r["final"] for r in improved)
+    print(f"\n=== Block D: {len(improved)}/{len(results)} improved, saved {saved:,} ADP ===")
+    for r in sorted(improved, key=lambda x: x["start"] - x["final"], reverse=True):
+        print(f"  {r['case']}: {r['start']:,} -> {r['final']:,} (-{r['start']-r['final']:,})")
+
+
+# ---------------------------------------------------------------------------
 # main() dispatch helpers
 # ---------------------------------------------------------------------------
 
@@ -1825,6 +2011,36 @@ def _run_reproduce_modes(args: object, root: Path) -> int | None:
         write_summary_csv(args.logs / "summary.csv", summaries)
         if args.report_stats:
             print_report_stats(all_results, summaries)
+        return 0
+    if getattr(args, "optimize", False):
+        import csv as _csv
+        cases = selected_cases_from_args(args)
+        if getattr(args, "above_ratio", None) is not None:
+            ref: dict[str, int] = {}
+            p = root / "reference_result.csv"
+            if p.exists():
+                with p.open(newline="", encoding="utf-8") as fh:
+                    for row in _csv.DictReader(fh):
+                        ref[row["case"]] = int(row["adp"])
+            cases = [c for c in cases
+                     if ref.get(c) and (_opt_cur_adp(c, args.output, args.abc, root) or 0) / ref[c] >= args.above_ratio]
+        if not cases:
+            print("no cases selected")
+            return 0
+        print(f"[optimize] {len(cases)} cases, strategies={args.strategies}")
+        run_block_d_optimize(
+            cases=cases,
+            abc=args.abc,
+            benchmarks=args.benchmarks,
+            output=args.output,
+            logs=args.logs,
+            root=root,
+            strategies=args.strategies,
+            timeout=args.timeout_per_case,
+            deepsyn_seconds=args.deepsyn_seconds,
+            seeds=args.seeds,
+            workers=args.workers,
+        )
         return 0
     return None
 
