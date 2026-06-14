@@ -1306,19 +1306,11 @@ def validate_template_case(case: str, table: TruthTable) -> list[dict[str, str]]
 
 
 def run_validate_templates(benchmarks: "Path", logs: "Path", all_cases: "list[str]") -> None:
-    import csv
     from pathlib import Path
     from blif_builder import read_truth
     rows: list[dict[str, str]] = []
     for case in all_cases:
         table = read_truth(benchmarks / f"{case}.truth")
         rows.extend(validate_template_case(case, table))
-    path = logs / "template_validation.csv"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["case", "template", "matched", "mapping", "detail"])
-        writer.writeheader()
-        writer.writerows(rows)
     matched = [row for row in rows if row["matched"] == "1"]
-    print(f"[validate] wrote {path}")
     print(f"[validate] matched template rows: {len(matched)}")

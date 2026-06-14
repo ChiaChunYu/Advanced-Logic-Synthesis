@@ -544,7 +544,7 @@ def make_history_guided_ga_flows(
     Callers must pass the read_result_rows and row_int callables to avoid
     a circular import between flow_library and result_logging.
     """
-    rows = read_result_rows_fn(logs / "reproduce_candidates.csv") or read_result_rows_fn(logs / "results.csv")
+    rows = read_result_rows_fn(logs / "stage_reproduce_log.csv") or read_result_rows_fn(logs / "results.csv")
     equivalent = [row for row in rows if row.get("equivalent") in ("1", "True", "true") and row.get("flow_commands", "")]
     same_case = [row for row in equivalent if row.get("case") == case]
     pool = same_case or equivalent

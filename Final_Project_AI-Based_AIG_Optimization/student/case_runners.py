@@ -330,7 +330,7 @@ def run_circuit_type_optimize_case(
                 selected_row = row
                 break
 
-    append_circuit_type_optimize_csv(logs / "circuit_type_optimize.csv", rows)
+    append_circuit_type_optimize_csv(logs / "stage_circuit_type_log.csv", rows)
     if best_adp < base_adp:
         name = selected_row.get("flow_name", "circuit_type") if selected_row else "circuit_type"
         seed_name = selected_row.get("seed_name", "unknown") if selected_row else "unknown"
@@ -503,7 +503,7 @@ def run_semantic_split_optimize_case(
                 selected_row = row
                 break
 
-    append_semantic_split_csv(logs / "semantic_split_candidates.csv", rows)
+    append_semantic_split_csv(logs / "stage_semantic_split_log.csv", rows)
     if best_adp < base_adp:
         split = selected_row.get("split_name", "semantic_split") if selected_row else "semantic_split"
         flow_name = selected_row.get("flow_name", "semantic") if selected_row else "semantic"
@@ -588,7 +588,7 @@ def run_exact_npn_rescue_case(
                 "error": message,
             }
         )
-        append_exact_npn_rescue_csv(logs / "exact_npn_rescue.csv", rows)
+        append_exact_npn_rescue_csv(logs / "stage_exact_npn_log.csv", rows)
         print(f"[{case}] exact/NPN skipped: {message}")
         return rows, CaseSummary(
             case=case,
@@ -650,7 +650,7 @@ def run_exact_npn_rescue_case(
                 selected_row = row
                 break
 
-    append_exact_npn_rescue_csv(logs / "exact_npn_rescue.csv", rows)
+    append_exact_npn_rescue_csv(logs / "stage_exact_npn_log.csv", rows)
     if best_adp < base_adp:
         flow_name = selected_row.get("flow_name", "exact_npn") if selected_row else "exact_npn"
         print(f"[{case}] exact/NPN improved ADP {base_adp} -> {best_adp} via {flow_name}")
@@ -766,7 +766,7 @@ def run_transduction_rescue_case(
                 selected_row = row
                 break
 
-    append_transduction_rescue_csv(logs / "transduction_rescue.csv", rows)
+    append_transduction_rescue_csv(logs / "stage_transduction_log.csv", rows)
     if best_adp < base_adp:
         expansion = selected_row.get("expansion_type", "transduction") if selected_row else "transduction"
         print(f"[{case}] transduction improved ADP {base_adp} -> {best_adp} via {expansion}")
@@ -873,7 +873,7 @@ def run_complement_rescue_case(
                 selected_row = row
                 break
 
-    append_complement_candidates_csv(logs / "complement_candidates.csv", rows)
+    append_complement_candidates_csv(logs / "stage_complement_log.csv", rows)
     if best_adp < base_adp:
         method = selected_row.get("method", "complement") if selected_row else "complement"
         print(f"[{case}] complement improved ADP {base_adp} -> {best_adp} via {method}")
@@ -984,7 +984,7 @@ def run_specialized_generators_case(
                 selected_row = row
                 break
 
-    append_specialized_generators_csv(logs / "specialized_generators.csv", rows)
+    append_specialized_generators_csv(logs / "stage_specialized_log.csv", rows)
     if best_adp < base_adp:
         print(f"[{case}] specialized improved ADP {base_adp} -> {best_adp}")
     else:
@@ -1185,7 +1185,7 @@ def run_ttopt_structural_case(
                 selected_row = row
                 break
 
-    append_ttopt_structural_csv(logs / "ttopt_structural.csv", rows)
+    append_ttopt_structural_csv(logs / "stage_ttopt_log.csv", rows)
     if best_adp < base_adp:
         print(f"[{case}] ttopt structural improved ADP {base_adp} -> {best_adp}")
     else:
@@ -1339,7 +1339,7 @@ def run_deepsyn_structural_case(
                 selected_row = row
                 break
 
-    append_deepsyn_structural_csv(logs / "deepsyn_structural.csv", rows)
+    append_deepsyn_structural_csv(logs / "stage_deepsyn_log.csv", rows)
     if best_adp < base_adp:
         print(f"[{case}] deepsyn structural improved ADP {base_adp} -> {best_adp}")
     else:
@@ -1556,7 +1556,7 @@ def run_pareto_area_structural_case(
                 selected_row = row
                 break
 
-    append_pareto_area_structural_csv(logs / "pareto_area_structural.csv", rows)
+    append_pareto_area_structural_csv(logs / "stage_pareto_area_log.csv", rows)
     if best_adp < base_adp:
         print(f"[{case}] area-Pareto structural improved ADP {base_adp} -> {best_adp}")
     else:
@@ -1627,15 +1627,15 @@ def run_long_large_structural_case(
         row["generated"] = 1
         if not is_equivalent(abc, truth, seed_aig, min(timeout_per_case, 120), root):
             row["error"] = "ttopt seed is not equivalent"
-            append_long_large_structural_csv(logs / "long_large_structural.csv", [row])
+            append_long_large_structural_csv(logs / "stage_long_large_log.csv", [row])
             return CaseSummary(case, base_area, base_delay, base_adp, base_area, base_delay, base_adp, 1.0, "long_large_structural/invalid_seed")
     except subprocess.TimeoutExpired:
         row["error"] = "ttopt seed timeout"
-        append_long_large_structural_csv(logs / "long_large_structural.csv", [row])
+        append_long_large_structural_csv(logs / "stage_long_large_log.csv", [row])
         return CaseSummary(case, base_area, base_delay, base_adp, base_area, base_delay, base_adp, 1.0, "long_large_structural/timeout")
     except Exception as exc:
         row["error"] = str(exc)[:500]
-        append_long_large_structural_csv(logs / "long_large_structural.csv", [row])
+        append_long_large_structural_csv(logs / "stage_long_large_log.csv", [row])
         return CaseSummary(case, base_area, base_delay, base_adp, base_area, base_delay, base_adp, 1.0, "long_large_structural/error")
 
     try:
@@ -1673,7 +1673,7 @@ def run_long_large_structural_case(
     except Exception as exc:
         row["error"] = str(exc)[:500]
         summary = CaseSummary(case, base_area, base_delay, base_adp, base_area, base_delay, base_adp, 1.0, "long_large_structural/error")
-    append_long_large_structural_csv(logs / "long_large_structural.csv", [row])
+    append_long_large_structural_csv(logs / "stage_long_large_log.csv", [row])
     return summary
 
 
@@ -1982,7 +1982,7 @@ def run_hybrid_structural_case(
     else:
         print(f"[{case}] hybrid structural kept current ADP {base_adp}")
 
-    append_hybrid_structural_csv(logs / "hybrid_structural.csv", rows)
+    append_hybrid_structural_csv(logs / "stage_hybrid_log.csv", rows)
     summary = CaseSummary(
         case=case,
         baseline_area=base_area,
@@ -2137,9 +2137,9 @@ def run_mockturtle_structural_case(
                 row["error"] = str(exc)[:500]
             rows.append(row)
 
-    append_mockturtle_candidates_csv(logs / "mockturtle_candidates.csv", rows)
+    append_mockturtle_candidates_csv(logs / "stage_mockturtle_log.csv", rows)
     append_mockturtle_structural_summary_csv(
-        logs / "mockturtle_structural_summary.csv",
+        logs / "stage_mockturtle_summary_log.csv",
         [
             {
                 "case": case,
@@ -2248,7 +2248,7 @@ def run_type_guided_refine_case(
                 selected_row = row
                 break
 
-    append_type_guided_csv(logs / "type_guided_refine.csv", rows)
+    append_type_guided_csv(logs / "stage_type_guided_log.csv", rows)
     if best_adp < base_adp:
         flow_name = selected_row.get("flow_name", "type_guided") if selected_row else "type_guided"
         print(f"[{case}] {family} improved ADP {base_adp} -> {best_adp} via {flow_name}")
@@ -2347,7 +2347,7 @@ def run_objective_guided_refine_case(
                 selected_row = row
                 break
 
-    append_objective_guided_csv(logs / "objective_guided_refine.csv", rows)
+    append_objective_guided_csv(logs / "stage_objective_log.csv", rows)
     if best_adp < base_adp:
         flow_name = selected_row.get("flow_name", "objective_guided") if selected_row else "objective_guided"
         objective = selected_row.get("objective", "objective") if selected_row else "objective"
@@ -2445,7 +2445,7 @@ def run_micro_guided_refine_case(
                 selected_row = row
                 break
 
-    append_micro_guided_csv(logs / "micro_guided_refine.csv", rows)
+    append_micro_guided_csv(logs / "stage_micro_guided_log.csv", rows)
     if best_adp < base_adp:
         flow_name = selected_row.get("flow_name", "micro_guided") if selected_row else "micro_guided"
         print(f"[{case}] micro improved ADP {base_adp} -> {best_adp} via {flow_name}")
@@ -2524,7 +2524,7 @@ def run_gia_canonical_convergence_case(
             break
         rows.append(row)
 
-    append_gia_canonical_csv(logs / "gia_canonical_convergence.csv", rows)
+    append_gia_canonical_csv(logs / "stage_gia_log.csv", rows)
     if best_adp < base_adp:
         print(f"[{case}] GIA canonical improved ADP {base_adp} -> {best_adp}")
     else:
@@ -2789,7 +2789,7 @@ def run_small_case_refine_case(
                 "status": "SKIPPED_NOT_SMALL",
             }
         )
-        append_small_case_csv(logs / "small_case_refine.csv", rows)
+        append_small_case_csv(logs / "stage_small_case_log.csv", rows)
         summary = CaseSummary(
             case=case,
             baseline_area=base_area,
@@ -2868,7 +2868,7 @@ def run_small_case_refine_case(
                 selected_row = row
                 break
 
-    append_small_case_csv(logs / "small_case_refine.csv", rows)
+    append_small_case_csv(logs / "stage_small_case_log.csv", rows)
     if best_adp < base_adp:
         flow_name = selected_row.get("flow_name", "small_case") if selected_row else "small_case"
         print(f"[{case}] small-case improved ADP {base_adp} -> {best_adp} via {flow_name}")

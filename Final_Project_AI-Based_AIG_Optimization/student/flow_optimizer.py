@@ -212,9 +212,7 @@ from result_logging import (
     append_circuit_type_optimize_csv,
     format_case_analysis,
     print_report_stats,
-    write_final_summary_csv,
     append_complement_candidates_csv,
-    append_contest_schedule_csv,
     append_deepsyn_structural_csv,
     append_exact_npn_rescue_csv,
     append_gia_canonical_csv,
@@ -232,14 +230,8 @@ from result_logging import (
     append_transduction_rescue_csv,
     append_ttopt_structural_csv,
     append_type_guided_csv,
-    build_case_coverage,
-    rank_current_outputs,
     read_result_rows,
     row_int,
-    run_ablation_report,
-    run_case_coverage_report,
-    run_diagnose_results,
-    write_case_coverage_report,
     write_pareto_candidates_csv,
     write_results_csv,
     write_summary_csv,
@@ -1456,7 +1448,7 @@ def run_reproduce_best(args: argparse.Namespace, root: Path) -> tuple[list[Candi
     # Phase 4: re-synthesis competition with a larger candidate budget
     _phase_resynth_competition(args, root)
 
-    write_results_csv(args.logs / "reproduce_candidates.csv", step_results)
+    write_results_csv(args.logs / "stage_reproduce_log.csv", step_results)
     final_results, final_summaries = verify_final_outputs(
         selected_cases_from_args(args), args.abc, args.benchmarks, args.output, root,
     )
@@ -1671,13 +1663,11 @@ def parse_args() -> argparse.Namespace:
     group.add_argument("--reproduce-best", action="store_true", help="run the full deterministic best-result workflow")
     parser.add_argument("--cases", nargs="+", metavar="CASE", help="filter pipeline to only these cases (combinable with --reproduce-best)")
     parser.add_argument("--show-reproduce-recipe", action="store_true", help="print the deterministic reproduce-best stage recipe and exit")
-    parser.add_argument("--write-contest-plan", action="store_true", help="write or locate the contest optimization plan and exit")
     parser.add_argument("--analyze-case", help="print truth-table features and exit")
     parser.add_argument("--classify-case", help="print Boolean fingerprint/classification and exit")
     parser.add_argument("--exact-function-report", action="store_true", help="write exact function recognition matches and exit")
     parser.add_argument("--exact-match-all", action="store_true", help="alias for exact function recognition over the selected cases")
     parser.add_argument("--verify-final", action="store_true", help="verify current output AIGs and refresh results/summary logs")
-    parser.add_argument("--write-final-summary", action="store_true", help="verify current outputs and write report-ready final_summary.csv")
     parser.add_argument("--exact-max-inputs", type=int, default=14, help="maximum input count for expensive exact arithmetic detectors")
     parser.add_argument("--abc", type=Path, default=Path("student/abc"))
     parser.add_argument("--benchmarks", type=Path, default=Path("benchmarks"))
@@ -1707,27 +1697,11 @@ def parse_args() -> argparse.Namespace:
         help="path to the structural mockturtle optimizer binary",
     )
     parser.add_argument("--report-stats", action="store_true", help="print report-oriented aggregate statistics")
-    parser.add_argument("--ablation-report", action="store_true", help="summarize candidate history and method wins")
-    parser.add_argument("--diagnose-results", action="store_true", help="classify current outputs by likely optimization bottleneck")
-    parser.add_argument("--rescue-worst", type=int, metavar="K", help="rerun focused rescue on the K highest-ADP current outputs")
-    parser.add_argument("--try-complement", action="store_true", help="try complement-first synthesis candidates")
     parser.add_argument("--complement-rescue", action="store_true", help="run generic complement synthesis wrapper candidates")
     parser.add_argument("--complement-budget", type=int, default=16, help="maximum complement wrapper candidates per case")
-    parser.add_argument("--bdd-sift", action="store_true", help="try local adjacent-swap BDD order search during rescue")
     parser.add_argument("--validate-templates", action="store_true", help="write exact arithmetic/template validation CSV")
-    parser.add_argument("--history-guided-ga", action="store_true", help="seed GA flows from historical winning flows")
-    parser.add_argument("--case-coverage-report", action="store_true", help="write per-case optimization coverage report")
-    parser.add_argument("--complete-all-cases", action="store_true", help="optimize every under-covered case until coverage improves")
-    parser.add_argument("--min-candidates", type=int, default=50, help="minimum candidates per under-covered case")
-    parser.add_argument("--round-robin-optimize", action="store_true", help="visit every case in family-rotating rounds")
-    parser.add_argument("--rounds", type=int, default=5, help="number of round-robin optimization rounds")
-    parser.add_argument("--candidates-per-round", type=int, default=10, help="candidate budget per case per round")
-    parser.add_argument("--score-aware-optimize", action="store_true", help="allocate candidate budget from coverage and ADP diagnostics")
-    parser.add_argument("--total-budget", type=int, default=5000, help="total candidate budget for score-aware scheduling")
-    parser.add_argument("--contest-optimize", action="store_true", help="run fair contest-style scheduler over all selected cases")
     parser.add_argument("--case-fair-next-optimize", action="store_true", help="run the next deterministic fair refinement package on every selected case")
     parser.add_argument("--case-fair-stage-timeout", type=int, default=12, help="maximum seconds for each sub-stage in --case-fair-next-optimize")
-    parser.add_argument("--time-budget", type=int, default=3600, help="wall-clock time budget in seconds for --contest-optimize")
     parser.add_argument("--type-guided-refine", action="store_true", help="classify every selected case and run a fixed type-specific refinement package")
     parser.add_argument("--type-guided-max-flows", type=int, default=5, help="maximum type-guided ABC refinement flows per case")
     parser.add_argument("--circuit-type-optimize", action="store_true", help="run circuit-family-specific polish plus truth-seed refinement")
@@ -1773,7 +1747,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--optimize", action="store_true", help="run Block D equivalence-gated backend sweep (flows/resynth/deepsyn/mockturtle)")
     parser.add_argument("--strategies", nargs="*", default=["flows", "resynth", "deepsyn", "mockturtle"],
                         help="subset/order of Block D strategies")
-    parser.add_argument("--deepsyn-seconds", type=int, default=90, help="per-seed &my_deepsyn seconds for --optimize")
+    parser.add_argument("--optimize-deepsyn-seconds", type=int, default=90, help="per-seed &my_deepsyn seconds for --optimize")
     parser.add_argument("--seeds", type=int, nargs="*", default=[0, 42], help="random seeds for --optimize deepsyn")
     parser.add_argument("--workers", type=int, default=6, help="parallel workers for --optimize")
     parser.add_argument("--above-ratio", type=float, default=None,
@@ -1807,16 +1781,12 @@ def run_verify_final(args: argparse.Namespace, root: Path, write_final_summary: 
     results, summaries = verify_final_outputs(cases, args.abc, args.benchmarks, args.output, root)
     write_results_csv(args.logs / "results.csv", results)
     write_summary_csv(args.logs / "summary.csv", summaries)
-    _write_pareto_candidates_from_results(args.logs / "pareto_candidates.csv", results)
-    if write_final_summary:
-        write_final_summary_csv(args.logs / "final_summary.csv", results, args.logs, args.abc, args.benchmarks, root)
+    _write_pareto_candidates_from_results(args.logs / "stage_pareto_log.csv", results)
     equivalent_count = sum(1 for row in results if row.equivalent)
     total_adp = sum(row.adp or 0 for row in results if row.equivalent)
     print("------------------------------------------------------")
     print(f"Equivalent cases: {equivalent_count}/{len(results)}")
     print(f"Total ADP over equivalent cases: {total_adp}")
-    if write_final_summary:
-        print(f"[final-summary] wrote {args.logs / 'final_summary.csv'}")
     return results, summaries
 
 
@@ -2019,14 +1989,10 @@ def _run_reproduce_modes(args: object, root: Path) -> int | None:
     if args.show_reproduce_recipe:
         print(format_reproduce_recipe())
         return 0
-    if args.write_contest_plan:
-        plan_path = write_contest_plan_file(root)
-        print(f"[contest-plan] {plan_path}")
-        return 0
     if args.reproduce_best:
         all_results, summaries = run_reproduce_best(args, root)
         write_results_csv(args.logs / "results.csv", all_results)
-        _write_pareto_candidates_from_results(args.logs / "pareto_candidates.csv", all_results)
+        _write_pareto_candidates_from_results(args.logs / "stage_pareto_log.csv", all_results)
         write_summary_csv(args.logs / "summary.csv", summaries)
         if args.report_stats:
             print_report_stats(all_results, summaries)
@@ -2056,10 +2022,321 @@ def _run_reproduce_modes(args: object, root: Path) -> int | None:
             root=root,
             strategies=args.strategies,
             timeout=args.timeout_per_case,
-            deepsyn_seconds=args.deepsyn_seconds,
+            deepsyn_seconds=args.optimize_deepsyn_seconds,
             seeds=args.seeds,
             workers=args.workers,
         )
+        return 0
+    return None
+
+
+def _run_all_modes(args: object, root: Path) -> int | None:
+    # ── reporting / analysis ─────────────────────────────────────────────────
+    if args.verify_final:
+        run_verify_final(args, root)
+        return 0
+    if args.analyze_case:
+        truth = args.benchmarks / f"{args.analyze_case}.truth"
+        table = read_truth(truth)
+        print(format_case_analysis(args.analyze_case, table))
+        return 0
+    if args.classify_case:
+        truth = args.benchmarks / f"{args.classify_case}.truth"
+        fingerprint = fingerprint_case(truth)
+        append_classification_csv(args.logs / "classification.csv", fingerprint)
+        print(format_fingerprint(fingerprint))
+        exact_rows = exact_matches_for_truth(truth, max_expensive_inputs=args.exact_max_inputs)
+        write_exact_function_matches_csv(args.logs / "exact_function_matches.csv", exact_rows)
+        print("")
+        print(format_exact_matches(exact_rows))
+        return 0
+    if args.exact_function_report or args.exact_match_all:
+        cases = selected_cases_from_args(args)
+        exact_rows = []
+        for case in cases:
+            exact_rows.extend(exact_matches_for_truth(
+                args.benchmarks / f"{case}.truth",
+                max_expensive_inputs=args.exact_max_inputs,
+            ))
+        write_exact_function_matches_csv(args.logs / "exact_function_matches.csv", exact_rows)
+        print(f"[exact] wrote {args.logs / 'exact_function_matches.csv'}")
+        print(f"[exact] matched rows: {len(exact_rows)}")
+        return 0
+    if args.validate_templates:
+        run_validate_templates(args.benchmarks, args.logs, ALL_CASES)
+        return 0
+    # ── scheduling ───────────────────────────────────────────────────────────
+    if args.case_fair_next_optimize:
+        run_case_fair_next_optimize(args, root)
+        return 0
+    # ── refinement ───────────────────────────────────────────────────────────
+    if args.type_guided_refine:
+        cases = selected_cases_from_args(args)
+        summaries: list[CaseSummary] = []
+        for case in cases:
+            print(f"[{case}] type-guided refine")
+            _rows, summary = run_type_guided_refine_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.type_guided_max_flows,
+            )
+            summaries.append(summary)
+        print_summary_totals("type-guided", summaries)
+        return 0
+    if args.circuit_type_optimize:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] circuit-type optimize")
+            _rows, summary = run_circuit_type_optimize_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.circuit_type_max_flows,
+                args.circuit_type_max_seeds, args.seed,
+            )
+            summaries.append(summary)
+        print_summary_totals("circuit-type", summaries)
+        return 0
+    if args.semantic_split_optimize:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] semantic split optimize")
+            _rows, summary = run_semantic_split_optimize_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.semantic_max_splits,
+                args.semantic_max_flows, args.seed,
+            )
+            summaries.append(summary)
+        print_summary_totals("semantic-split", summaries)
+        return 0
+    if args.objective_guided_refine:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] objective-guided refine")
+            _rows, summary = run_objective_guided_refine_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.objective_max_per_family,
+            )
+            summaries.append(summary)
+        print_summary_totals("objective-guided", summaries)
+        return 0
+    if args.micro_guided_refine:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] micro-guided refine")
+            _rows, summary = run_micro_guided_refine_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.micro_max_flows,
+            )
+            summaries.append(summary)
+        print_summary_totals("micro-guided", summaries)
+        return 0
+    if args.gia_canonical_converge:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] GIA canonical convergence")
+            _rows, summary = run_gia_canonical_convergence_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.gia_canonical_max_passes,
+            )
+            summaries.append(summary)
+        print_summary_totals("gia-canonical", summaries)
+        return 0
+    if args.area_first_refine:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] area-first refine")
+            _rows, summary = run_area_first_refine_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root,
+            )
+            summaries.append(summary)
+        print_summary_totals("area-first", summaries)
+        return 0
+    if args.small_case_refine:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] small-case refine")
+            _rows, summary = run_small_case_refine_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.small_max_flows,
+                args.small_area_threshold, args.small_adp_threshold,
+            )
+            summaries.append(summary)
+        print_summary_totals("small-case", summaries)
+        return 0
+    # ── rescue / structural exploration ──────────────────────────────────────
+    if args.exact_npn_rescue:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] exact/NPN rescue")
+            _rows, summary = run_exact_npn_rescue_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.npn_max_support, args.npn_max_flows,
+            )
+            summaries.append(summary)
+        print_summary_totals("exact-npn", summaries)
+        return 0
+    if args.transduction_rescue:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] transduction rescue")
+            _rows, summary = run_transduction_rescue_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.transduction_budget, args.seed,
+            )
+            summaries.append(summary)
+        print_summary_totals("transduction", summaries)
+        return 0
+    if args.complement_rescue:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] complement rescue")
+            _rows, summary = run_complement_rescue_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.seed, args.complement_budget, not args.no_bdd,
+            )
+            summaries.append(summary)
+        print_summary_totals("complement", summaries)
+        return 0
+    if args.specialized_generators or args.specialized_generate:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] specialized structural generators")
+            _rows, summary = run_specialized_generators_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.exact_max_inputs,
+            )
+            summaries.append(summary)
+        print_summary_totals("specialized", summaries)
+        return 0
+    if args.ttopt_structural:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] ttopt structural")
+            _rows, summary = run_ttopt_structural_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root,
+            )
+            summaries.append(summary)
+        print_summary_totals("ttopt-structural", summaries)
+        return 0
+    if args.deepsyn_structural:
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] bounded deepsyn structural")
+            _rows, summary = run_deepsyn_structural_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.seed,
+                args.deepsyn_iterations, args.deepsyn_seconds,
+            )
+            summaries.append(summary)
+        print_summary_totals("deepsyn-structural", summaries)
+        return 0
+    if args.long_large_structural:
+        cases = selected_cases_from_args(args)
+        if not args.case and not args.range:
+            selected_ll: list[str] = []
+            for case in cases:
+                table = read_truth(args.benchmarks / f"{case}.truth")
+                area, _delay, adp = measure_adp(args.abc, args.output / f"{case}.aig", 120, root)
+                if should_run_long_large_structural(table, area, adp, args.long_large_min_area, args.long_large_min_adp):
+                    selected_ll.append(case)
+            cases = selected_ll
+        summaries = []
+        for case in cases:
+            print(f"[{case}] long large alternate-seed structural")
+            summary = run_long_large_structural_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.seed,
+                args.long_large_seconds, args.ttopt_seed_rounds,
+            )
+            summaries.append(summary)
+        print_summary_totals("long-large-structural", summaries)
+        return 0
+    if args.compact_vector_pareto_probe:
+        cases = selected_cases_from_args(args)
+        summaries = run_adaptive_compact_vector_pareto(
+            cases, args.abc, args.benchmarks, args.output, args.logs, root, args.seed,
+            force_cases=bool(args.case or args.range),
+        )
+        print_summary_totals("compact-vector-pareto", summaries)
+        return 0
+    if args.pareto_area_structural or args.compact_low_degree_pareto:
+        cases = selected_cases_from_args(args)
+        if not args.case and not args.range:
+            selected_pa: list[str] = []
+            for case in cases:
+                table = read_truth(args.benchmarks / f"{case}.truth")
+                area, _delay, _adp = measure_adp(args.abc, args.output / f"{case}.aig", 120, root)
+                eligible = (
+                    should_run_compact_pareto_structural(table, area)
+                    if args.compact_low_degree_pareto
+                    else should_run_pareto_area_structural(table, area)
+                )
+                if eligible:
+                    selected_pa.append(case)
+            cases = selected_pa
+        summaries = []
+        for case in cases:
+            label = "compact low-degree Pareto structural" if args.compact_low_degree_pareto else "area-Pareto structural"
+            print(f"[{case}] {label}")
+            _rows, summary = run_pareto_area_structural_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.seed, args.pareto_area_seconds,
+            )
+            summaries.append(summary)
+        print_summary_totals(
+            "compact-low-degree-pareto" if args.compact_low_degree_pareto else "pareto-area-structural",
+            summaries,
+        )
+        return 0
+    if args.hybrid_structural:
+        yosys_bin, error = resolve_yosys_binary(args.yosys_bin)
+        if yosys_bin is None:
+            print(f"[hybrid-structural] unavailable, skipping: {error}")
+            return 0
+        mockturtle_bin: Path | None = None
+        mockturtle_ok, mockturtle_error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
+        if mockturtle_ok:
+            mockturtle_bin = args.mockturtle_structural_bin
+        else:
+            print(f"[hybrid-structural] mockturtle unavailable; running Yosys-only candidates: {mockturtle_error}")
+        cases = selected_cases_from_args(args)
+        summaries = []
+        for case in cases:
+            print(f"[{case}] Yosys/mockturtle hybrid structural")
+            _rows, summary = run_hybrid_structural_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, yosys_bin, mockturtle_bin,
+                args.mockturtle_workers, args.mockturtle_max_modes, args.exact_max_inputs,
+            )
+            summaries.append(summary)
+        print_summary_totals("hybrid-structural", summaries)
+        return 0
+    if args.mockturtle_structural or args.mockturtle_case:
+        ok, error = ensure_structural_mockturtle(args.mockturtle_structural_bin, root)
+        if not ok:
+            print(f"[mockturtle-structural] unavailable, skipping: {error}")
+            return 0
+        cases = selected_cases_from_args(args, args.mockturtle_case)
+        for case in cases:
+            print(f"[{case}] mockturtle structural")
+            run_mockturtle_structural_case(
+                case, args.abc, args.benchmarks, args.output, args.logs,
+                args.timeout_per_case, root, args.mockturtle_structural_bin,
+                args.mode, args.mockturtle_max_modes, args.exact_max_inputs,
+            )
         return 0
     return None
 
@@ -2072,18 +2349,13 @@ def main() -> int:
     if getattr(args, "cases", None):
         _ACTIVE_CASE_FILTER = set(args.cases)
 
-    for _handler in (
-        _run_reproduce_modes,
-        _run_report_modes,
-        _run_scheduling_modes,
-        _run_refinement_modes,
-        _run_rescue_modes,
-    ):
+    for _handler in (_run_reproduce_modes, _run_all_modes):
         result = _handler(args, root)
         if result is not None:
             return result
 
-    return _run_default_optimize(args, root)
+    print("No mode selected. Use --reproduce-best, --optimize, --classify-case, or another flag.", file=__import__('sys').stderr)
+    return 1
 
 
 if __name__ == "__main__":

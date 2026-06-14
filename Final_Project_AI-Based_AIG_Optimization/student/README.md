@@ -1,479 +1,262 @@
 # Hybrid AIG Optimizer
 
-This directory contains the submitted optimizer for the AI-Based AIG
-Optimization final project.
+Submitted optimizer for the AI-Based AIG Optimization final project.
+Optimizes 100 Boolean circuits (`ex200`–`ex299`) by minimizing ADP = area × delay.
 
-## What To Run
-
-Use this command to regenerate all submitted AIGs and verify them:
+## Quick Start
 
 ```bash
-bash student/reproduce_best.sh
+bash student/reproduce_best.sh      # full pipeline, ~6–10 hours
+python3 student/evaluate.py         # evaluate current output/ (minutes)
 ```
 
-`reproduce_best.sh` is the single reproduction entry point.  It checks the
-required tools, builds the mockturtle helper if needed, invokes:
+## Safety Contract
+
+Every candidate AIG must pass two gates before replacing `output/<case>.aig`:
+
+1. **ABC CEC equivalence** — proven identical to the original truth table
+2. **Strict ADP decrease** — `new_area × new_delay < current_area × current_delay`
+
+No candidate is ever adopted without both conditions satisfied.
+
+---
+
+## Optimization Pipeline
+
+### Core Pipeline — Stages 1–17 (`flow_optimizer.py --reproduce-best`)
+
+Runs deterministically over all 100 cases. Each stage tries a different
+synthesis approach; only CEC-verified strict ADP improvements are kept.
+
+| Stage | Method | Description |
+|------:|--------|-------------|
+| 1 | Boolean fingerprinting | Compute truth-table features: effective support, per-input influence, density, monotonicity, symmetry groups, Shannon split scores, ANF degree. Produce per-case labels used to select strategy in later stages. |
+| 2 | Exact function recognition | Prove bit-exact matches against arithmetic templates: adder, multiplier, signed multiplier, square, divider quotient, integer square root. Confirmed matches unlock template-based initial candidates. |
+| 3 | Initial candidate synthesis | Generate structurally diverse starting AIGs from truth table: ABC truth synthesis, SOP/POS covers, factored SOP, Shannon/BDD structures with deterministic variable orders, complement-first synthesis, arithmetic template seeds when exact match exists. |
+| 4 | mockturtle structural resynthesis | Fingerprint-selected AIG/XAG/MIG/XMG algebraic rewriting via mockturtle. XAG modes (`xag_xor_heavy`, `roundtrip_xag`) reduce delay for high-delay multi-output cases. |
+| 5 | ABC `&ttopt` synthesis | Truth-table structural synthesis with level-preserving transduction. Generates new AIG topology from truth table rather than rewriting the existing one. |
+| 6 | Bounded `&deepsyn` resynthesis | Fixed-seed LUT map/unmap resynthesis. Bounded to stay deterministic. |
+| 7 | `&my_deepsyn` area-Pareto | Area-first Pareto resynthesis for large equal-width multi-output cases (area ≥ 500). Sweeps the Pareto frontier and selects by ADP after fixed cleanup. |
+| 8 | Yosys hybrid resynthesis | Route current AIG through Yosys AIG remap, then optionally through fingerprint-selected mockturtle resynthesis, then fixed ABC polish. Symbol-free AIGER bridge preserves primary-input ordering. |
+| 9 | Compact vector Pareto probe | Detect low-ANF-degree compact vector functions; run iterative Pareto structural resynthesis. Expands budget only after a verified improvement is found. |
+| 10 | Long-large structural rescue | For large-area high-ADP cases: synthesize new `&ttopt` topology seed from truth table, optimize with area-Pareto + DSD balancing. Longer search only if bounded probe already improves ADP. |
+| 11 | Transduction rescue | Bounded equivalent expansion/reduction candidates. |
+| 12 | Re-synthesis competition | 120-candidate budget: truth/SOP/factored-SOP/BDD/template seeds × ABC post-flows, competing against current `output/` AIG. Recovered 40 cases for −2,577 total ADP. |
+| 13 | Complement-first synthesis | Synthesize complement of each output, negate; sometimes exposes smaller AIG topology. |
+| 14 | Area-first refinement | Aggressive area flows applied to every case: `resub -K 10`, `dc2` loops, `fraig`, `dch; if -K 3/4`, GIA `compress2rs`, `&sopb -C 16 -R 1`, `&b -d -s`, plus two fresh truth-table re-synthesis candidates. |
+| 15 | `&my_deepsyn -C area` all-case sweep | Area-first Pareto on every case with area ≥ 500. Covers LogicNets-style compact functions that benefit from structural-restart search. |
+| 16 | Case-fair final refinement | Every case receives the same objective/micro/small/complement package, preventing any case from being systematically under-optimized. |
+| 17 | GIA canonical convergence | Interleaved micro-guided resubstitution and GIA canonical cleanup, iterated until no further ADP improvement. |
+
+---
+
+### Block A — Semantic Front-End Reconstruction
+
+Runs after the core pipeline on cases where structural optimization is
+insufficient; targets arithmetic and float-like circuits.
+
+**A1: Semantic split reconstruction** (`--semantic-split-optimize`)
+
+Cases: `ex200 ex201 ex202 ex203 ex220 ex240 ex250 ex252 ex262 ex263 ex264 ex286 ex297 ex298 ex299`
+
+Decomposes the circuit into sub-functions by splitting on candidate class
+variables (sign bit, exponent byte, high nibble). Strategies tried per case:
+
+- **Exponent/class split**: cofactor on each candidate class variable; synthesize
+  each residual sub-function independently; merge into BLIF.
+- **Field-pair split**: treat the two 8-bit operands as high-nibble + low-nibble
+  pairs; synthesize paired residuals. Targets 16-bit conversion and unknown
+  circuits whose two operands are packed byte-wise.
+- **Shared-cofactor BDD**: cache residual BDDs across all outputs and all class
+  values; duplicate residuals are emitted once and complemented copies reuse the
+  cached signal through a single inverter.
+- **Global shared multi-output BDD**: all outputs share one decision-node cache
+  under several deterministic variable orders.
+
+All equivalent candidates are logged to `student/logs/stage_semantic_split_log.csv`;
+only strict ADP decreases are copied into `output/`.
+
+**A2: Circuit-family refinement** (`--circuit-type-optimize`)
+
+Cases: `ex223 ex225 ex250 ex252 ex262 ex263 ex264 ex286 ex297 ex299`
+
+Fingerprints each case and applies a family-specific flow package:
+- Threshold/majority logic uses delay-first flows distinct from general logic.
+- Monotone-positive general logic uses a monotone delay/area package.
+- Mixed constant-output cases (e.g. ex252) use a constant-aware flow family.
+- Ambiguous cases get truth-table BDD seeds as alternative front-ends.
+
+---
+
+### Block B — Back-End Flow Refinement (`post_optimize.py`)
+
+Equivalence-gated ABC flow search; adopts only strict ADP decreases.
+
+| Step | Command | Cases | Description |
+|------|---------|-------|-------------|
+| B1 | `refine --case-workers 8` | all above-reference | Parallel ABC flow suite: `&resyn3rs`, `&sopb`, `resub -K N`, `dch+if`, `&compress2rs`, etc. Each case iterates until no flow yields improvement. |
+| B2 | `refine --cases ex262` | ex262 | Targeted cleanup after B1 improved ex262. |
+| B3 | `advanced --mode deepsyn` | high-ratio cases | Area-first `&my_deepsyn` pass for cases with high ADP ratio vs reference. |
+| B4 | `refine --cases ex219 ex247 ex261` | ex219, ex247, ex261 | Cleanup after area-first pass exposes new local minima. |
+| B5 | `advanced --mode semantic --case ex261` + refine | ex261 | Decoded semantic probe + cleanup for the signed 5×5 multiplier case. |
+| B6 | Pareto → refine → area-first → objective → refine | ex295 | Full guarded cleanup tail for this persistently hard case (1.70x ratio). |
+
+---
+
+### Block C — Word-Level Semantic Reconstruction (`rtl_synth.py`)
+
+For circuits whose arithmetic function was identified bit-exactly:
+hand-write the Verilog, synthesize through Yosys + ABC + `&my_deepsyn -C adp`,
+CEC-check against the original truth table, adopt only on strict improvement.
+
+| Step | Family | Cases | Note |
+|------|--------|-------|------|
+| C1 | FP8 | ex240 (e4m3 add), ex241 (e4m3 mul), ex245 (e5m2 add) | ex240 and ex245 win vs structural AIG; ex241 identified but RTL loses |
+| C2 | Signed multiplier | ex261 (5×5), ex262 (6×6), ex263 (7×7), ex264 (8×8) | Carry-save correction compresses sign terms with partial products |
+| C3 | Integer isqrt | ex279 (16-bit) | Digit-by-digit non-restoring algorithm |
+
+Cases in `IDENTIFIED_NONWINNING`: semantics confirmed, RTL synthesized and
+CEC-verified, but structural AIG beats RTL on ADP — not run by default.
+
+---
+
+### Block D — Final Back-End Sweep (`flow_optimizer.py --optimize`)
+
+Strongest equivalence-gated back-end search applied after all front-end
+reconstruction stages. Four strategies tried in order per case:
+
+- **flows**: broad ABC flow suite (14 flow combinations)
+- **resynth**: truth-table re-synthesis competition (fresh candidates vs current AIG)
+- **deepsyn**: `&my_deepsyn` ADP+area Pareto search
+- **mockturtle**: structural AIG/XAG/MIG resynthesis
+
+**D: All cases** — 90-second deepsyn budget, seeds {0, 42}, 6 parallel workers.
+
+**D2: Long-search-sensitive cases** — 480-second deepsyn budget, seeds {0, 42, 7, 11}:
+`ex242 ex243 ex247 ex248 ex249 ex251 ex262 ex289 ex205 ex264 ex263`
+
+These cases only break through under a long multi-seed randomized search
+(e.g. ex242 dropped from 15,285 to 11,040 found only at 480 s × 4 seeds).
+
+---
+
+### Block E — Evaluate, Verify, Record
 
 ```bash
-python3 student/flow_optimizer.py --reproduce-best \
-  --abc student/abc \
-  --benchmarks benchmarks \
-  --output output \
-  --logs student/logs
+python3 evaluate.py --abc student/abc --benchmarks benchmarks --output output
+python3 student/pipeline_bookend.py verify
+python3 student/pipeline_bookend.py recipe --refresh
 ```
 
-and then runs:
+- **evaluate.py**: ABC CEC on all 100 cases + total ADP report.
+- **verify**: compare `output/` against `best_output/`; non-zero exit if any
+  case regressed. Because `reproduce_best.sh` uses `set -euo pipefail`, any
+  regression aborts the entire pipeline.
+- **recipe --refresh**: write `student/case_recipes/<case>.json` for each case
+  with circuit-family labels, winning synthesis method, reference ratio, best
+  area/delay/ADP with date, and append-only ADP history.
+
+---
+
+## Verification
 
 ```bash
-python3 evaluate.py \
-  --abc student/abc \
-  --benchmarks benchmarks \
-  --output output
-```
+# Full equivalence + ADP check (all 100 cases, ~5 min)
+python3 student/evaluate.py
 
-`flow_optimizer.py` contains the actual optimization implementation.
-Individual `flow_optimizer.py` options are useful for analysis and testing a
-single stage, but `reproduce_best.sh` is the command to use for complete
-result reproduction.
+# Single case
+python3 student/evaluate.py --case ex240
 
-Complete regeneration is intentionally long-running: the pipeline runs
-the deterministic core stages plus targeted verified cleanup stages covering
-hybrid synthesis, structural resynthesis
-(ttopt, deepsyn, Pareto, mockturtle, Yosys hybrid), area-first refinement,
-`&my_deepsyn` all-case sweep, case-fair final refinement, and final
-convergence passes.
+# Confirm no regression vs best_output/
+python3 student/pipeline_bookend.py verify
 
-## Required Environment
+# Print per-case recipe table sorted by ratio
+python3 student/pipeline_bookend.py recipe --summary
 
-Run the project in Linux or WSL because `student/abc` is a Linux executable.
-
-Required tools:
-
-```text
-python3
-yosys
-student/abc
-```
-
-When `student/mockturtle_opt/mockturtle_opt` is not already built, complete
-regeneration also requires:
-
-```text
-cmake
-a C++ compiler
-student/mockturtle_src/
-```
-
-## Objective And Safety
-
-For each truth table from `benchmarks/ex200.truth` through
-`benchmarks/ex299.truth`, the optimizer generates:
-
-```text
-output/ex200.aig ... output/ex299.aig
-```
-
-The objective is:
-
-```text
-ADP = area * delay
-```
-
-Every candidate must pass ABC equivalence checking against its original truth
-table.  A generated AIG replaces the current output only when it is:
-
-```text
-equivalent and lower in ADP
-```
-
-`student/optimizer.py` is the original baseline and remains unchanged.  The
-submission does not hardcode final benchmark AIG answers.
-
-## Current Optimization Method
-
-The submitted method is a deterministic hybrid structural synthesis pipeline.
-It constructs and tests several equivalent network representations, then
-keeps the lowest-ADP verified result.
-
-### 1. Boolean Function Analysis
-
-`boolean_fingerprint.py` and `exact_function_recognition.py` analyze truth
-tables to identify useful structure:
-
-- effective support, input influence, density, monotonicity, and symmetry
-- Shannon decomposition behavior and ANF properties
-- exact recognized templates such as affine/parity, threshold/popcount,
-  comparator, adder, multiplier, square, divider quotient, and integer square
-  root when proven by the truth table
-- refined case-level labels for monotone-positive general logic and
-  mixed constant-output functions; these prevent visually similar
-  general-random cases from all using the same ABC strategy package
-- semantic class-split reconstruction for float-like and unknown cases:
-  candidate class variables model sign/exponent/high-byte selectors, and each
-  class synthesizes only the residual mantissa/low-bit function
-- field-pair semantic reconstruction for 16-bit conversion/unknown functions:
-  paired high-nibble and paired low-nibble splits model circuits whose two
-  logical operands are packed into the high and low byte fields.  This gives a
-  different front-end topology from a plain byte split and is logged separately
-  as `float_pair_high_nibbles` / `float_pair_low_nibbles`.
-- shared-cofactor semantic reconstruction: class-split BLIF generation caches
-  residual BDDs across all outputs and all class values.  Duplicate residual
-  cofactors are emitted once, and complemented cofactors reuse the cached
-  signal through a single inverter.  This targets multi-output functions whose
-  outputs are not equal globally but share many local decision subfunctions.
-- shared multi-output decision graphs: semantic reconstruction also tries
-  global BDD candidates where all outputs share one decision-node cache under
-  several deterministic variable orders.  This is aimed at the
-  `ex280-ex299` unknown-function group described as class/rotation/split
-  structured in `introduction.html`.
-
-### 2. Initial Structural Candidates
-
-`flow_optimizer.py` generates structurally different candidates from:
-
-- ABC truth-table synthesis
-- SOP/POS and factored SOP forms
-- Shannon/BDD structures with deterministic variable orders
-- complement-first synthesis
-- exact specialized templates when an exact function match is available
-
-### 3. Structural Resynthesis Engines
-
-The pipeline then attempts deterministic architecture-level transformations:
-
-- fingerprint-selected mockturtle AIG/XAG/MIG/XMG resynthesis
-- ABC `&ttopt` truth-table structural synthesis with level-preserving
-  transduction
-- bounded fixed-seed ABC `&deepsyn` LUT map/unmap resynthesis
-- fixed-seed ABC `&my_deepsyn -C area` Pareto resynthesis for large
-  equal-width multi-output area bottlenecks
-- low-ANF-degree vector-function detection followed by iterative Pareto
-  structural resynthesis for compact LogicNets-style functions
-- an adaptive compact-vector probe that expands structural budget only after
-  an equivalent lower-ADP probe candidate is found
-- long-running large-vector rescue: a new `&ttopt` shared-topology seed is
-  synthesized from the truth table, then optimized by fixed-seed
-  area-Pareto search and DSD balancing; longer refinement is spent only on
-  topology seeds whose bounded probe already lowers verified ADP
-- safe Yosys-to-mockturtle hybrid resynthesis
-- area-first refinement: area-aggressive flows (`resub -K 10`, `dc2` loops,
-  `fraig`, `dch; if -K 3/4`, GIA `compress2rs`, `&sopb -C 16 -R 1`,
-  `&b -d -s`) applied to all cases, plus two fresh truth-table re-synthesis
-  candidates; accepts only equivalence-checked strict ADP decreases
-- `&my_deepsyn -C area` all-case Pareto sweep: runs on every case with
-  area ≥ 500, covering LogicNets-style compact functions that benefit from
-  structural-restart search
-
-For the Pareto structural stages, the optimizer measures every generated
-frontier AIG after fixed cleanup and selects by ADP.  It does not assume that
-the smallest-area frontier point is the best submitted point.
-
-The area-first refinement stage (stage 13) runs before the final convergence
-pass.  It is also available as a standalone command:
-
-```bash
-python3 student/flow_optimizer.py --area-first-refine --all \
-  --abc student/abc --benchmarks benchmarks --output output \
-  --logs student/logs --timeout-per-case 90
-```
-
-The Yosys hybrid route uses:
-
-```text
-current AIG
-  -> ABC symbol-free AIGER bridge
-  -> Yosys AIG remap
-  -> fixed ABC polish
-  -> fingerprint-selected mockturtle resynthesis, when useful
-  -> fixed ABC polish
-  -> equivalence and ADP selection
-```
-
-The symbol-free bridge preserves primary-input ordering when AIGER files pass
-through Yosys.  Independent mockturtle candidate generations may run in
-parallel, but selection remains deterministic and equivalence gated.
-
-### 4. Final Deterministic Refinement
-
-After structural candidates settle:
-
-- area-first flows (`resub -K 10`, `dc2` loops, `fraig`, `dch; if -K 3/4`,
-  GIA `compress2rs`, `&sopb`, `&b -d -s`) and two fresh truth-table
-  re-synthesis candidates are tried on every case (stage 13)
-- `&my_deepsyn -C area` Pareto sweep on all cases with area ≥ 500 (stage 14)
-- case-fair final refinement gives every case the same objective/micro/small/
-  complement package before final convergence (stage 15)
-- interleaved micro-guided resubstitution and GIA canonical cleanup until no
-  further ADP improvement (stage 16)
-- targeted 1.5x-ratio push refinement revisits cases that stayed above the
-  reference-ratio threshold during experiments, using the same
-  equivalence-gated area/type/objective/micro/GIA package that produced the
-  current outputs (stage 17)
-- type-guided refinement distinguishes monotone-positive general logic from
-  true threshold/majority logic.  This is important for cases such as ex250
-  and ex286, where symmetry groups exist but the outputs are not simple
-  threshold functions; they now try a separate monotone delay/area flow
-  package.  Mixed constant-output cases such as ex252 use a constant-aware
-  flow family instead of the generic package.
-- exact signed multiplier reconstruction now includes a carry-save correction
-  template.  Instead of building an unsigned multiplier followed by two
-  ripple sign-correction subtractors, the sign-extension correction terms are
-  compressed together with the partial products.  This gives a distinct
-  low-delay Pareto seed for signed multiplier cases such as ex262-ex264.
-- factored SOP emission now preserves don't-care literals introduced during
-  recursive factoring.  This keeps front-end BLIF reconstruction faithful to
-  the intended cover before ABC cleanup and CEC selection.
-- class-split BLIFs now report `shared_cofactors`, `reused`, and
-  `complemented` in `student/logs/semantic_split_candidates.csv`, making the
-  front-end sharing effect auditable and reproducible.
-
-The core pipeline is followed by deterministic targeted cleanup stages in
-`reproduce_best.sh`.  Use `--show-reproduce-recipe` to print the core stage
-list with parameters.
-
-After the core pipeline, these additional stages run automatically:
-
-- **Stage 18** (`flow_optimizer.py --semantic-split-optimize`): deterministic
-  semantic front-end reconstruction on representative float/arithmetic
-  bottlenecks.  It tries per-output hybrid BDDs, exponent/class split BLIF
-  structures, and paired-nibble field splits for 16-bit conversion/unknown
-  circuits.  It also tries global shared multi-output BDDs before the class
-  split candidates.  The wider `--semantic-max-splits 8` setting is intentional: it
-  allows the paired-field candidates to be reached after the classic
-  exponent/high-byte/low-byte candidates.  The `--semantic-max-flows 4`
-  setting includes the GIA cleanup pass, which is often the strongest cleanup
-  for shared-cofactor BLIFs.  All equivalent candidates are recorded in
-  `student/logs/semantic_split_candidates.csv`; only strict ADP decreases are
-  copied into `output/`.
-- **Stage 19** (`flow_optimizer.py --circuit-type-optimize`): deterministic
-  circuit-family refinement on the structurally ambiguous bottleneck set
-  (`ex223`, `ex225`, `ex250`, `ex252`, `ex262`, `ex263`, `ex264`, `ex286`,
-  `ex297`, `ex299`).  Each case is fingerprinted first, then optimized with
-  a family-specific mix of current-AIG polish flows and truth-table BDD seeds.
-  This stage records every accepted and rejected candidate in
-  `student/logs/circuit_type_optimize.csv`.
-- **Stage 20** (`refine_close.py`): parallel ABC flow search
-  (`&resyn3rs`, `&sopb`, `resub -K N`, `dch+if`, `&compress2rs`, etc.)
-  applied to every case above the reference ADP.  Each case iterates
-  until no flow yields a strictly lower verified ADP.  Its temporary
-  directory is derived from Python's platform temp directory so the same
-  script works in both `/tmp`-based Unix shells and Windows Python setups.
-- **Stage 21** (`refine_close.py --cases ex262`): targeted cleanup for the
-  one case that improved in the post-hoc refine sweep.
-- **Stage 23** (`refine_close.py --cases ...`): targeted post-hoc cleanup for
-  the late verified improvements on `ex262`, `ex265`, `ex266`, `ex275`,
-  `ex277`, `ex278`, `ex284`, and `ex295`.  It reruns each case independently
-  to avoid cross-case file races and keeps only CEC-checked strict ADP
-  decreases.
-- **Stage 24** (`deep_area_opt.py`): area-first `&my_deepsyn` pass for
-  high-ratio cases.  It writes to `output/` only after strict verified ADP
-  improvement.
-- **Stage 25** (`refine_close.py --cases ex219 ex247 ex261`): cleanup after
-  the area-first pass exposes new local minima.
-- **Stage 26** (`specialized_semantic_generators.py --case ex261` plus
-  `refine_close.py --cases ex261`): decoded semantic probe and final ex261
-  cleanup.
-
-Stage 5 (`mockturtle_structural`) now includes `xag_xor_heavy` and
-`roundtrip_xag` for all cases with large area, high ADP, or high delay (≥18
-levels).  These XAG algebraic depth-rewriting modes reduce delay by 1–3 levels
-on multi-output equal-width functions, yielding ADP gains of 5–10% on the
-largest bottleneck cases.
-
-### Late additions (re-synthesis competition + semantic reconstruction)
-
-- **Phase 4** (inside `flow_optimizer.py --reproduce-best`,
-  `_phase_resynth_competition`): re-synthesizes every case from its truth table
-  with a 120-candidate budget (truth/SOP/factored-SOP/BDD/template seeds × ABC
-  post-flows), competing against the current `output/` AIG.  Adopts only on
-  strict verified ADP decrease, with per-case backup/rollback.  This recovered
-  40 cases for a total −2,577 ADP with zero regressions.
-- **Stage 29** (`fp8_synth.py`): semantic word-level reconstruction for fp8
-  cases whose function was identified bit-exactly.  Currently `ex240` (fp8 e4m3
-  add) and `ex241` (fp8 e4m3 mul): it emits exact Verilog, synthesizes through
-  Yosys + ABC + `&my_deepsyn -C adp`, CEC-checks, and adopts only on strict
-  improvement.  `ex240` dropped from 27,863 to 15,210 (−12,653), confirming the
-  `introduction.html` thesis that front-end semantic reconstruction beats
-  back-end optimization for recognizable functions.
-
-### Reproducibility guarantee
-
-`reproduce_best.sh` ends by running:
-
-```bash
-python3 student/verify_reproduce.py   # output/ equivalent and ADP <= best_output/
-python3 student/recipe_store.py --refresh
-```
-
-`verify_reproduce.py` fails (non-zero exit) if any case is missing, not
-equivalent, or regressed versus `best_output/`, so a from-scratch run is
-guaranteed to be at least as good as the recorded best.  `--update` syncs
-strict improvements into `best_output/`.
-
-### Pushing any case further
-
-`student/optimize.py` is the single, rollback-safe entry point for improving a
-case after the main pipeline.  Every strategy is equivalence-gated and adopts
-only strict ADP decreases, so it can be re-run on any case at any time:
-
-```bash
-python3 student/optimize.py --case ex250                 # all strategies
-python3 student/optimize.py --case ex250 --strategies resynth deepsyn
-python3 student/optimize.py --all --workers 6            # every case
-python3 student/optimize.py --above-ratio 1.3            # only lagging cases
-```
-
-Strategies (tried in order, best kept): `flows` (broad ABC flow suite),
-`resynth` (truth-table re-synthesis competition), `deepsyn`
-(`&my_deepsyn` ADP+area Pareto search), `mockturtle` (structural AIG/XAG/MIG
-resynthesis).  Improvements refresh the per-case recipes automatically.
-
-### Per-case optimization records
-
-`student/case_recipes/<case>.json` records, for every case: the circuit-family
-labels, the winning initial-synthesis method, reference ADP and ratio, the
-best area/delay/ADP with date, an append-only ADP history, and free-text notes
-(hand-editable, preserved across refreshes — used to record which semantic
-hypotheses were tried and failed).  Regenerate or inspect with:
-
-```bash
-python3 student/recipe_store.py --refresh   # update from output/ + logs/
-python3 student/recipe_store.py --summary   # per-case table sorted by ratio
-```
-
-## Final Verified Result
-
-The current submitted outputs have been checked with `evaluate.py`:
-
-```text
-Equivalent cases: 100/100
-Total ADP over equivalent cases: 8781571
-```
-
-(Down from 8,892,765 earlier in development; the latest gains came from the
-Phase 4 re-synthesis competition and the fp8 semantic reconstruction stage.)
-
-The latest per-case comparison is written to
-`student/logs/current_results_with_reference_updated.csv`.
-`current_results_with_reference.csv` may be locked by spreadsheet/IDE preview
-tools on Windows; the updated copy under `student/logs/` is kept so result
-regeneration is still auditable.
-The reference comparison baseline remains at project root as
-`reference_result.csv`.
-
-| Case  | My ADP  | Ref ADP | Ratio  |
-|-------|--------:|--------:|-------:|
-| ex276 |     576 |     632 | 0.9114 |
-| ex284 |   3,952 |   4,240 | 0.9321 |
-| ex265 |     308 |     322 | 0.9565 |
-| ex280 |   2,310 |   2,415 | 0.9565 |
-| ex272 |  10,507 |  10,880 | 0.9657 |
-| ex287 |   5,586 |   5,782 | 0.9661 |
-| ex231 |  13,740 |  14,066 | 0.9768 |
-| ex207 | 614,916 | 627,817 | 0.9795 |
-| ex227 | 708,377 | 721,639 | 0.9816 |
-
-Development history, per-stage experiments, and prior result comparisons are
-recorded separately in `student/OPTIMIZATION_LOG.md`.
-
-## Implementation Files
-
-The complete result is generated by these submitted source files.
-
-### Reproduction entry point
-
-```text
-student/reproduce_best.sh               single reproduction command (0 -> final)
-```
-
-### Core pipeline (imported as a module hierarchy)
-
-```text
-student/flow_optimizer.py               top-level deterministic pipeline + CLI
-student/abc_core.py                     ABC wrappers, measure_adp, CEC helpers
-student/blif_builder.py                 truth-table reader + BLIF/BDD writers
-student/candidate_gen.py                initial candidate synthesis
-student/case_runners.py                 per-case stage runners
-student/flow_library.py                 ABC flow definitions + selection
-student/result_logging.py              CSV result logging
-student/boolean_fingerprint.py          truth-table structure analysis
-student/exact_function_recognition.py   exact template detection
-```
-
-### Optimization stages run by reproduce_best.sh
-
-```text
-student/advanced_synthesis.py           area-first / semantic cleanup stages
-student/refine_close.py                 post-hoc ABC flow refinement
-student/fp8_synth.py                    fp8 add/mul word-level RTL (ex240/241/245)
-student/mult_synth.py                   signed/unsigned multiplier RTL (ex261-264)
-student/isqrt_synth.py                  integer isqrt RTL (ex279)
-student/optimize.py                     final all-case back-end sweep (Block D)
-student/mockturtle_opt/                 mockturtle structural resynthesis tool
-```
-
-The `*_synth.py` scripts emit an exact Verilog implementation of a recognised
-word-level function, synthesize it through Yosys + ABC + `&my_deepsyn`, and
-adopt the result only when it is CEC-equivalent and strictly lower ADP. Each
-keeps an `IDENTIFIED` list (cases whose RTL wins, run by the pipeline) and an
-`IDENTIFIED_NONWINNING`/`_SMALL` list (verified semantics whose RTL loses to the
-structural AIG — documented, re-checkable via `--case`, not run by default).
-The non-winning-only synthesizers (`fp16_synth.py` for fp16 logs, `square_synth.py`
-for x^2) live under `student/experiment/`.
-
-### Reproducibility + per-case records
-
-```text
-student/verify_reproduce.py             assert output/ >= best_output/ (no regress)
-student/recipe_store.py                 maintain student/case_recipes/*.json
-student/case_recipes/                   one JSON per case: family, method, history
-```
-
-`student/optimizer.py` is retained only as the provided baseline; it is not
-called by the final reproduction command.
-
-Exploratory scripts are intentionally separated under:
-
-```text
-student/experiment/
-```
-
-Those scripts document failed probes and focused searches used during
-development (truth-table identifiers, boost passes, hard-case analysis).  The
-final reproduction command does not depend on them.  Development history is
-documented separately in `student/OPTIMIZATION_LOG.md`.
-
-Report-ready logs are written under `student/logs/`, including:
-
-```text
-current_results.csv
-current_results_with_reference_updated.csv
-results.csv
-summary.csv
-final_summary.csv
-classification.csv
-exact_function_matches.csv
-ttopt_structural.csv
-deepsyn_structural.csv
-pareto_area_structural.csv
-long_large_structural.csv
-gia_canonical_convergence.csv
-hybrid_structural.csv
-```
-
-## Verification Only
-
-To verify existing generated outputs without rerunning optimization:
-
-```bash
-python3 evaluate.py \
-  --abc student/abc \
-  --benchmarks benchmarks \
-  --output output
-```
-
-To inspect the deterministic stages executed by the reproduction command:
-
-```bash
+# Print the 17-stage core pipeline description
 python3 student/flow_optimizer.py --show-reproduce-recipe
+
+# Boolean fingerprint + exact function analysis for one case
+python3 student/flow_optimizer.py --classify-case ex240 \
+  --abc student/abc --benchmarks benchmarks --output output --logs student/logs
+```
+
+---
+
+## Results vs TA Reference
+
+**Total ADP: 8,731,655 / Reference: 6,696,028 — overall ratio: 1.304×**
+
+All 100 cases are equivalent (100/100 CEC pass).
+
+### Distribution vs reference
+
+| Category | Cases | Description |
+|----------|------:|-------------|
+| Beat reference (< 1.0×) | **15** | Strictly better than TA reference ADP |
+| Within 5% (1.00–1.05×) | 11 | Very close to reference |
+| Within 10% (1.05–1.10×) | 17 | Close to reference |
+| 1.10–1.20× | 28 | Moderate gap |
+| 1.20–1.50× | 17 | Significant gap |
+| Above 1.50× | **12** | Hard cases — structural optimization insufficient |
+
+### Cases beating the reference (15 total)
+
+| Case | My ADP | Ref ADP | Ratio | Method |
+|------|-------:|--------:|------:|--------|
+| ex272 | 9,671 | 10,880 | 0.889 | structural deepsyn |
+| ex276 | 576 | 632 | 0.911 | structural deepsyn |
+| ex242 | 11,040 | 11,900 | 0.928 | Block D2 long deepsyn (480s) |
+| ex284 | 3,936 | 4,240 | 0.928 | structural deepsyn |
+| ex240 | 12,614 | 13,299 | 0.948 | Block C FP8 e4m3 add RTL |
+| ex265 | 308 | 322 | 0.957 | structural deepsyn |
+| ex280 | 2,310 | 2,415 | 0.957 | structural deepsyn |
+| ex287 | 5,572 | 5,782 | 0.964 | structural deepsyn |
+| ex245 | 10,659 | 11,050 | 0.965 | Block C FP8 e5m2 add RTL |
+| ex243 | 51,680 | 53,227 | 0.971 | Block D2 long deepsyn (480s) |
+| ex231 | 13,692 | 14,066 | 0.973 | structural deepsyn |
+| ex207 | 614,916 | 627,817 | 0.979 | structural deepsyn |
+| ex227 | 707,446 | 721,639 | 0.980 | structural deepsyn |
+| ex298 | 436,696 | 442,296 | 0.987 | structural deepsyn |
+| ex268 | 7,423 | 7,446 | 0.997 | structural deepsyn |
+
+### Hard cases above 1.5× (12 total)
+
+`ex286` (5.99×), `ex252` (4.81×), `ex250` (2.22×), `ex297` (2.21×),
+`ex299` (2.21×), `ex225` (1.74×), `ex295` (1.70×), `ex223` (1.69×),
+`ex248` (1.67×), `ex247` (1.63×), `ex246` (1.63×), `ex224` (1.60×)
+
+These cases resist all applied strategies. `ex286` and `ex252` appear to
+require a semantic front-end decomposition that has not yet been identified.
+`ex297`/`ex299` are the two largest circuits (area > 25k) where even 480-second
+deepsyn search yields no improvement.
+
+---
+
+## File Structure
+
+```
+student/reproduce_best.sh       entry point — runs full pipeline
+student/flow_optimizer.py       core pipeline CLI (stages 1–17, Block A, Block D)
+student/case_runners.py         per-stage optimization runners
+student/blif_builder.py         BLIF/BDD generation from truth tables
+student/candidate_gen.py        initial candidate synthesis
+student/flow_library.py         ABC flow definitions and selection
+student/result_logging.py       CSV logging for all stages
+student/circuit_analysis.py     Boolean fingerprinting + exact function recognition
+student/post_optimize.py        Block B: ABC flow refinement + area-first cleanup
+student/rtl_synth.py            Block C: FP8 / signed multiplier / isqrt RTL
+student/pipeline_bookend.py     Block E: verify (no regression) + recipe refresh
+student/evaluate.py             evaluate output/ AIGs (works on Windows + WSL)
+student/abc_core.py             ABC subprocess wrappers (CEC, measure_adp)
+student/mockturtle_opt/         C++ mockturtle structural resynthesis binary
+```
+
+### Runtime-generated (not tracked in git)
+
+```
+output/ex2xx.aig                optimized AIG outputs
+best_output/ex2xx.aig           best-known AIG for regression guard
+student/logs/*.csv              per-stage optimization logs
+student/case_recipes/ex2xx.json per-case method + ADP history
 ```

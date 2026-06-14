@@ -152,7 +152,7 @@ def _load_classification() -> dict[str, dict]:
 def _load_winning_methods() -> dict[str, dict]:
     """Selected initial method + flow per case from the last pipeline run."""
     methods: dict[str, dict] = {}
-    path = LOGS / "reproduce_candidates.csv"
+    path = LOGS / "stage_reproduce_log.csv"
     if path.exists():
         with open(path) as f:
             for row in csv.DictReader(f):

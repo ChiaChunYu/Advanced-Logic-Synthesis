@@ -886,23 +886,4 @@ def bdd_sift_case(
             rows.append(result)
             if improved:
                 break
-    path = logs / "bdd_sifting.csv"
-    existing = path.is_file()
-    with path.open("a", newline="", encoding="utf-8") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["case", "flow_name", "area", "delay", "adp", "equivalent", "selected", "status"])
-        if not existing:
-            writer.writeheader()
-        for row in rows:
-            writer.writerow(
-                {
-                    "case": row.case,
-                    "flow_name": row.flow_name,
-                    "area": row.area if row.area is not None else "",
-                    "delay": row.delay if row.delay is not None else "",
-                    "adp": row.adp if row.adp is not None else "",
-                    "equivalent": int(row.equivalent),
-                    "selected": int(row.selected),
-                    "status": row.status,
-                }
-            )
     return rows
