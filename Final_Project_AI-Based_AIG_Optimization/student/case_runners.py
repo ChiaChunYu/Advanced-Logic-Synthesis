@@ -1,4 +1,12 @@
-"""Case-level optimization runners extracted from flow_optimizer.py."""
+#!/usr/bin/env python3
+"""Per-case optimization stage runners.
+
+Each function in this module implements one optimization stage for a single
+circuit case. All functions are called by flow_optimizer.py and share the
+same interface: they accept (case, abc, benchmarks, output, logs, timeout,
+root, ...) and return (list[CandidateResult], CaseSummary). Every adopted
+result is CEC-verified and strictly ADP-decreasing.
+"""
 from __future__ import annotations
 
 import csv

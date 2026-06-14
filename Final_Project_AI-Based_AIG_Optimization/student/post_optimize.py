@@ -24,7 +24,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-ROOT      = Path(__file__).resolve().parent.parent
+ROOT       = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "student"))
 
 from abc_core import (
@@ -43,15 +43,7 @@ from flow_library import PostFlow
 ABC        = ROOT / "student" / "abc"
 BENCHMARKS = ROOT / "benchmarks"
 OUTPUT     = ROOT / "output"
-
-
-# =============================================================================
-# Section 1: Refine Close  (parallel ABC flow search)
-# =============================================================================
-ROOT      = Path(__file__).resolve().parent.parent
-ABC       = ROOT / "student" / "abc"
-OUTPUT    = ROOT / "output"
-TMP       = Path(tempfile.gettempdir()) / "refine_close"
+TMP        = Path(tempfile.gettempdir()) / "refine_close"
 
 
 
@@ -95,7 +87,9 @@ DEEPSYN_FLOWS = [
     ("deepsyn_s13", 13),
 ]
 
-# ── helpers ────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
 
 def measure(p: str):
     return measure_aig(ABC, p)
@@ -224,7 +218,9 @@ def optimize_case(case: str, ref_adp: int, workers: int, timeout: int) -> dict:
         "beats_ref":    best_adp < ref_adp,
     }
 
-# ── main ───────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# main
+# ---------------------------------------------------------------------------
 
 def _cmd_refine():
     ap = argparse.ArgumentParser()
@@ -304,9 +300,9 @@ def _cmd_refine():
     if beats:
         print(f"Cases now beating reference: {beats}")
 
-# =============================================================================
+# ---------------------------------------------------------------------------
 # Section 2: Advanced Synthesis  (deepsyn + semantic generators)
-# =============================================================================
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -576,9 +572,9 @@ def _cmd_advanced() -> int:
     return 0
 
 
-# =============================================================================
+# ---------------------------------------------------------------------------
 # Combined CLI
-# =============================================================================
+# ---------------------------------------------------------------------------
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
