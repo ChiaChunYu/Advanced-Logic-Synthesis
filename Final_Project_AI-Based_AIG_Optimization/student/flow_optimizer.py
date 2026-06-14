@@ -452,13 +452,16 @@ REPRODUCE_RECIPE = [
     (
         "1",
         "all_case_hybrid_synthesis",
-        "全部 100 case 並行初始合成：多種前端（abc_truth/BDD/Shannon/SOP/exact structural）× ABC post-flow 組合，選 ADP 最低候選。",
+        "Parallel initial synthesis for all 100 cases: multiple front-ends "
+        "(abc_truth / BDD / Shannon / SOP / exact structural) x ABC post-flow "
+        "portfolio; keep lowest-ADP equivalent candidate.",
         f"max_candidates={REPRODUCE_MAIN_MAX_CANDIDATES}, seed={REPRODUCE_SEED}",
     ),
     (
         "2",
         "focused_template_ranges",
-        "針對算術電路範圍（乘法器/平方/除法/開根號）用更多候選重跑，提高 exact structural 命中率。",
+        "Re-run arithmetic template ranges (multiplier/square/divider/sqrt) "
+        "with a higher candidate budget to improve exact-structural hit rate.",
         ", ".join(
             f"{s}-{e}"
             for s, e in list(_INITIAL_CFG.arithmetic_ranges) + [_INITIAL_CFG.divider_range, _INITIAL_CFG.sqrt_range]
@@ -467,13 +470,15 @@ REPRODUCE_RECIPE = [
     (
         "3",
         "diagnosis_rescue",
-        "對診斷敏感 case（ex252）用 complement wrapper 和 history-guided GA 做高候選數救援合成。",
+        "High-candidate rescue for diagnosis-sensitive cases using complement "
+        "wrapper and history-guided GA flows.",
         ", ".join(_INITIAL_CFG.rescue_cases),
     ),
     (
         "4",
         "polish_and_sweep_convergence",
-        "固定 polish flow 套件 + sweep 套件反覆執行直到 ADP 收斂（early-stop）。",
+        "Fixed deterministic polish flows then sweep flows, repeated until ADP "
+        "no longer decreases (early-stop per pass).",
         (
             f"polish: up to {_REFINE_CFG.polish_passes} passes; "
             f"sweep: up to {_REFINE_CFG.sweep_passes + _REFINE_CFG.final_sweep_passes} passes"
@@ -482,13 +487,15 @@ REPRODUCE_RECIPE = [
     (
         "5",
         "mockturtle_structural",
-        "Fingerprint 導引的 mockturtle 結構式重合成（AIG/XAG/MIG），大型高延遲 case 強制嘗試 xag_xor_heavy 和 roundtrip_xag。",
+        "Fingerprint-guided mockturtle structural resynthesis (AIG/XAG/MIG); "
+        "large/high-delay cases always try xag_xor_heavy and roundtrip_xag.",
         f"timeout_per_case={_REFINE_CFG.final_advanced_mockturtle_timeout}, max_modes=4",
     ),
     (
         "6",
         "type_and_objective_guided_refinement",
-        "電路族群類型導引精修（根據 fingerprint 選 flow）+ 面積/延遲/平衡三方向 objective 導引精修。",
+        "Circuit-family type-guided refinement (fingerprint selects flow set) "
+        "followed by area/delay/balanced objective-guided refinement.",
         (
             f"type: max_flows={_REFINE_CFG.type_guided_max_flows}, timeout={_REFINE_CFG.type_guided_timeout}; "
             f"objective: max_per_family={_REFINE_CFG.objective_max_per_family}, timeout={_REFINE_CFG.objective_guided_timeout}"
@@ -497,7 +504,8 @@ REPRODUCE_RECIPE = [
     (
         "7",
         "micro_and_small_case_refinement",
-        "Micro-guided 低成本 flow（resubstitution 系列）+ 小電路專用精修套件（area 或 ADP 低於門檻的 case）。",
+        "Micro-guided low-cost resubstitution flows, then a targeted small-case "
+        "package for circuits below the area/ADP threshold.",
         (
             f"micro: max_flows={_REFINE_CFG.micro_max_flows}, timeout={_REFINE_CFG.micro_guided_timeout}; "
             f"small: area<={_REFINE_CFG.small_case_area_threshold} or adp<={_REFINE_CFG.small_case_adp_threshold}"
@@ -506,13 +514,15 @@ REPRODUCE_RECIPE = [
     (
         "8",
         "truth_table_structural_resynthesis",
-        "用 ABC &ttopt 從真值表建 shared BDD/MUX 結構，再做 level-preserving transduction 降 area。",
+        "Build shared BDD/MUX structures with ABC &ttopt, then apply "
+        "level-preserving transduction to reduce area.",
         f"timeout_per_case={_STRUCT_CFG.ttopt_structural_timeout}",
     ),
     (
         "9",
         "deepsyn_and_pareto_area_structural",
-        "有界 &deepsyn LUT map/unmap 結構式重合成，接著對大型等寬向量電路做 area-Pareto 搜尋。",
+        "Bounded &deepsyn LUT map/unmap structural resynthesis, then area-Pareto "
+        "search for large equal-width vector bottlenecks.",
         (
             f"deepsyn: {_STRUCT_CFG.deepsyn_structural_seconds}s x {_STRUCT_CFG.deepsyn_structural_passes} passes; "
             f"pareto: {_STRUCT_CFG.pareto_area_seconds}s, area>={_STRUCT_CFG.pareto_area_min_area}"
@@ -521,7 +531,8 @@ REPRODUCE_RECIPE = [
     (
         "10",
         "compact_vector_pareto_and_adaptive_probe",
-        "低 ANF 次數緊湊向量電路的 area-Pareto 不動點搜尋，再對剩餘 case 做 adaptive probe 確認有改善才做完整搜尋。",
+        "Area-Pareto fixed-point for compact low-ANF-degree vector circuits, "
+        "then adaptive probe: only run full refine when probe finds an improvement.",
         (
             f"compact: {_STRUCT_CFG.compact_pareto_passes} passes, {_STRUCT_CFG.compact_pareto_seconds}s; "
             f"adaptive: probe={_STRUCT_CFG.vector_probe_seconds}s, refine={_STRUCT_CFG.vector_refine_seconds}s"
@@ -530,16 +541,18 @@ REPRODUCE_RECIPE = [
     (
         "11",
         "long_large_alternate_seed_structural",
-        "大型等寬向量瓶頸 case：從真值表用長時間 ttopt 重建拓樸，只有 probe 確認改善才做完整 Pareto 搜尋。",
+        "For large equal-width vector bottlenecks: regenerate topology from the "
+        "truth table via long ttopt; run full Pareto refine only when probe improves.",
         (
             f"ttopt_rounds={_STRUCT_CFG.long_large_ttopt_rounds}, "
-            f"probe={_STRUCT_CFG.long_large_probe_seconds}s → refine={_STRUCT_CFG.long_large_refine_seconds}s"
+            f"probe={_STRUCT_CFG.long_large_probe_seconds}s -> refine={_STRUCT_CFG.long_large_refine_seconds}s"
         ),
     ),
     (
         "12",
         "yosys_mockturtle_hybrid_structural",
-        "Yosys AIG remap（無符號 AIGER bridge）→ fingerprint 選擇的 mockturtle 從改善後的 seed 繼續搜尋。",
+        "Symbol-free AIGER bridge into Yosys AIG remap, then fingerprint-selected "
+        "mockturtle resynthesis starting from the improved seed.",
         (
             f"timeout_per_case={_STRUCT_CFG.hybrid_structural_timeout}, "
             f"mockturtle_workers={_STRUCT_CFG.hybrid_workers}"
@@ -548,7 +561,8 @@ REPRODUCE_RECIPE = [
     (
         "13",
         "area_first_refine",
-        "面積優先 ABC flow 套件（resub/dc2/fraig/dch/if-K3/sopb）反覆執行到收斂。",
+        "Area-aggressive ABC flow suite (resub / dc2 / fraig / dch / if-K3 / sopb) "
+        "applied to all cases until convergence.",
         (
             f"max_passes={_CONV_CFG.area_first_passes}, "
             f"timeout_per_case={_CONV_CFG.area_first_timeout}"
@@ -557,7 +571,9 @@ REPRODUCE_RECIPE = [
     (
         "14",
         "my_deepsyn_all_case_sweep",
-        "兩段式 &my_deepsyn area-Pareto 全 case 掃描。Pass 1 覆蓋 area>=500 的 case，高比值 case 額外加時；Pass 2 對 area>=2000 的 case 給更長搜尋時間。",
+        "Two-pass &my_deepsyn area-Pareto sweep over all cases. "
+        "Pass 1 covers area>=500 with ratio-aware time bonus; "
+        "Pass 2 gives a longer budget to area>=2000 cases.",
         (
             f"pass1: area>={_CONV_CFG.my_deepsyn_pass1_min_area}, base={_CONV_CFG.my_deepsyn_pass1_seconds}s, "
             f"high_ratio(>={_CONV_CFG.ratio_tier_high_threshold}x)+{_CONV_CFG.ratio_tier_high_extra}s; "
@@ -567,7 +583,8 @@ REPRODUCE_RECIPE = [
     (
         "15",
         "case_fair_final_refinement",
-        "每個 case 平等執行一輪 objective/micro/small/complement 套件，確保沒有 case 被跳過，再收斂。",
+        "Every case runs the same objective/micro/small/complement package once "
+        "to ensure no case is skipped before final convergence.",
         (
             f"timeout_per_case={_CONV_CFG.case_fair_timeout}, "
             f"stage_timeout={REPRODUCE_CASE_FAIR_STAGE_TIMEOUT}, "
@@ -577,7 +594,8 @@ REPRODUCE_RECIPE = [
     (
         "16",
         "final_micro_and_gia_convergence",
-        "Micro-guided resubstitution 和 GIA canonical cleanup 交替執行直到 ADP 不再下降（early-stop）。",
+        "Interleaved micro-guided resubstitution and GIA canonical cleanup "
+        "until ADP no longer decreases (early-stop).",
         (
             f"max_passes={_CONV_CFG.micro_convergence_passes}, "
             f"micro_timeout={_CONV_CFG.micro_convergence_timeout}, "
@@ -587,7 +605,8 @@ REPRODUCE_RECIPE = [
     (
         "17",
         "targeted_ratio_push",
-        f"動態量測所有 case 的 ADP/reference 比值，對超過 {_PUSH_CFG.ratio_threshold}x 的 case 執行完整救援套件（type/objective/micro/Pareto）。",
+        f"Measure ADP/reference ratios for all cases; run full rescue package "
+        f"(type/objective/micro/Pareto) on every case above {_PUSH_CFG.ratio_threshold}x.",
         (
             f"ratio_threshold={_PUSH_CFG.ratio_threshold}x; "
             f"timeout={_PUSH_CFG.timeout}; "
