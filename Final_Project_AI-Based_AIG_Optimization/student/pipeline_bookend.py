@@ -50,11 +50,7 @@ def _load_ref() -> dict[str, int]:
     return ref
 
 
-def _cmd_verify() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--update", action="store_true",
-                        help="copy strict improvements from output/ into best_output/")
-    args = parser.parse_args()
+def _cmd_verify(args: argparse.Namespace) -> int:
 
     ref = _load_ref()
     BEST_OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -256,11 +252,7 @@ def summary() -> None:
           f"overall ratio: {total_adp / total_ref:.4f}   beating reference: {beating}/{len(rows)}")
 
 
-def _cmd_recipe() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--refresh", action="store_true")
-    parser.add_argument("--summary", action="store_true")
-    args = parser.parse_args()
+def _cmd_recipe(args: argparse.Namespace) -> int:
     if args.refresh:
         refresh()
     if args.summary:
