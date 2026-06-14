@@ -11,6 +11,11 @@ Final_Project_AI-Based_AIG_Optimization/student/mockturtle_opt/mockturtle_opt
 # Runtime-generated directories (rebuilt by reproduce_best.sh).
 Final_Project_AI-Based_AIG_Optimization/student/case_recipes/
 
+# Claude internal files and Python cache.
+.claude/scheduled_tasks.lock
+**/__pycache__/
+**/*.pyc
+
 # Course-provided / rendered docs — not part of the submitted code.
 Final_Project_AI-Based_AIG_Optimization/README.html
 Final_Project_AI-Based_AIG_Optimization/introduction.html
