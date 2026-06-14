@@ -388,51 +388,6 @@ def row_int(row: dict[str, str], key: str, default: int = 0) -> int:
         return default
 
 
-def load_candidate_history(logs: Path) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    for name in ("reproduce_candidates.csv", "coverage_candidates.csv", "results.csv"):
-        for row in read_result_rows(logs / name):
-            rows.append(row)
-    return rows
-
-
-def selected_methods_from_logs(logs: Path) -> dict[str, str]:
-    selected: dict[str, str] = {}
-    for row in load_candidate_history(logs):
-        if row.get("selected") in ("1", "True", "true"):
-            case = row.get("case", "")
-            method = row.get("initial_method", "")
-            flow = row.get("flow_name", "")
-            if case:
-                selected[case] = f"{method}/{flow}".strip("/")
-    method_logs = [
-        ("specialized", "specialized_generators.csv", ("generator", "flow_name")),
-        ("mockturtle", "mockturtle_candidates.csv", ("mode", "")),
-        ("exact_npn", "exact_npn_rescue.csv", ("method", "flow_name")),
-        ("transduction", "transduction_rescue.csv", ("expansion_type", "flow_name")),
-        ("complement", "complement_candidates.csv", ("method", "flow_name")),
-    ]
-    for prefix, filename, keys in method_logs:
-        for row in read_result_rows(logs / filename):
-            if row.get("selected") in ("1", "True", "true"):
-                case = row.get("case", "")
-                left = row.get(keys[0], "") if keys[0] else ""
-                right = row.get(keys[1], "") if keys[1] else ""
-                if case:
-                    selected[case] = f"{prefix}/{left}/{right}".strip("/")
-    return selected
-
-
-def count_selected_improvement_cases(logs: Path, filename: str) -> int:
-    cases: set[str] = set()
-    for row in read_result_rows(logs / filename):
-        if row.get("selected") in ("1", "True", "true") or row.get("improved") in ("1", "True", "true"):
-            case = row.get("case", "")
-            if case:
-                cases.add(case)
-    return len(cases)
-
-
 def run_ablation_report(logs: Path) -> None:
     rows = read_result_rows(logs / "reproduce_candidates.csv")
     if not rows:

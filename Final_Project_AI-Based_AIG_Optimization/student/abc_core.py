@@ -160,14 +160,6 @@ def verify_equivalence(abc: Path, truth_path: str | Path, aig_path: str | Path) 
         return False
 
 
-def safe_copy(src: Path | str, dst: Path | str) -> None:
-    """Copy *src* to *dst*, skipping silently if they are the same file."""
-    try:
-        shutil.copy(str(src), str(dst))
-    except shutil.SameFileError:
-        pass
-
-
 def prepare_case_temp_dir(logs: Path, stage_dir: str, case: str, *, reset: bool = True) -> Path:
     """Create one stage-local case workspace, optionally clearing old candidates."""
     temp_dir = logs / stage_dir / case

@@ -106,11 +106,11 @@ abc_refine --cases ex295 --case-workers 1
 # ── Block C: word-level semantic reconstruction (arithmetic RTL) ─────────────
 echo "=== Block C: word-level semantic reconstruction ==="
 echo "[C1] fp8 RTL (ex240 e4m3 add, ex241 e4m3 mul, ex245 e5m2 add)"
-python3 student/fp8_synth.py
+python3 student/rtl_synth.py --family fp8
 echo "[C2] signed multiplier RTL (ex261 5x5, ex262 6x6, ex263 7x7, ex264 8x8)"
-python3 student/mult_synth.py
+python3 student/rtl_synth.py --family mult
 echo "[C3] integer isqrt RTL (ex279 16-bit)"
-python3 student/isqrt_synth.py
+python3 student/rtl_synth.py --family isqrt
 # Note: square (ex270-274) and small mult/isqrt are identified but their RTL
 # loses to the structural AIG, so they are intentionally not run here.
 
