@@ -160,8 +160,6 @@ All 100 cases are equivalent (100/100 CEC pass).
 | 1.20–1.50× | 17 |
 | Above 1.50× | **12** |
 
-75 out of 100 cases (75%) are within 1.2× of the reference. The remaining gap is dominated by 12 hard cases where structural optimization has reached its limit — `ex286` (5.99×) and `ex252` (4.81×) in particular appear to require semantic decomposition strategies that have not yet been identified.
-
 ---
 
 ## File Structure
@@ -191,3 +189,46 @@ best_output/ex2xx.aig           best-known AIG for regression guard
 student/logs/*.csv              per-stage optimization logs
 student/case_recipes/ex2xx.json per-case method + ADP history
 ```
+
+---
+
+## File Descriptions
+
+**`reproduce_best.sh`**
+Entry point for the full pipeline. Runs Core stages 1–17, then Block A through E in order. Uses `set -euo pipefail` so any failure or regression aborts immediately.
+
+**`flow_optimizer.py`**
+Main CLI for the core pipeline. Handles Stage 1–17 (`--reproduce-best`), Block A semantic split (`--semantic-split-optimize`) and circuit-type optimization (`--circuit-type-optimize`), and Block D final sweep (`--optimize`). Also provides `--classify-case` for single-case analysis and `--show-reproduce-recipe` to print the stage descriptions.
+
+**`case_runners.py`**
+Implements the per-stage optimization logic called by `flow_optimizer.py`. Each stage (fingerprinting, ttopt, deepsyn, mockturtle, Yosys hybrid, re-synthesis competition, etc.) is a separate function here. Reads the current `output/` AIG, generates candidates, and writes back only if CEC-verified and ADP strictly improves.
+
+**`circuit_analysis.py`**
+Boolean fingerprinting (Stage 1) and exact function recognition (Stage 2). Computes truth-table features (influence, Shannon score, ANF degree, density, symmetry) and performs bit-exact template matching against known arithmetic functions (adder, multiplier, signed multiplier, square, isqrt).
+
+**`candidate_gen.py`**
+Generates structurally diverse initial AIG candidates from a truth table (Stage 3, Stage 12). Sources include ABC truth synthesis, SOP/POS/factored-SOP covers, BDD structures with multiple variable orders, Shannon cofactor decomposition, complement-first synthesis, and arithmetic template seeds.
+
+**`blif_builder.py`**
+Builds BLIF netlists and BDD structures from truth tables. Used by `candidate_gen.py` for Shannon/BDD candidates and by Block A for cofactor-based semantic decomposition (exponent split, field-pair split, shared-cofactor BDD, global multi-output BDD).
+
+**`flow_library.py`**
+Defines all ABC flow command sequences used across the pipeline. Each flow is a named string of ABC commands (e.g. `resyn2`, `dch+if`, `compress2rs`, `&resyn3rs`). Provides selection logic to pick flows based on circuit size, fingerprint labels, and optimization objective.
+
+**`abc_core.py`**
+Low-level ABC subprocess wrappers. Provides `run_abc(commands)`, `is_equivalent(aig, truth)` (CEC check), and `measure_adp(aig)` (area × delay). All ABC interactions in the pipeline go through this module. Quotes paths to handle spaces in directory names.
+
+**`post_optimize.py`**
+Block B implementation. `refine` mode runs a parallel ABC flow suite over above-reference cases, iterating until no flow yields improvement. `advanced` mode runs area-first `&my_deepsyn` for high-ratio cases or a semantic probe for specific cases (e.g. ex261 signed multiplier).
+
+**`rtl_synth.py`**
+Block C implementation. Contains hand-written Verilog for FP8 adders (e4m3/e5m2), signed multipliers (5×5–8×8), and 16-bit integer isqrt. Synthesizes each through Yosys + ABC + `&my_deepsyn -C adp`, CEC-verifies against the original truth table, and adopts only on strict ADP improvement.
+
+**`pipeline_bookend.py`**
+Block E implementation. `verify` mode compares `output/` against `best_output/` and exits non-zero if any case regressed. `recipe` mode reads per-case results and writes/updates `student/case_recipes/<case>.json` with circuit labels, winning method, ADP history, and reference ratio.
+
+**`evaluate.py`**
+Standalone evaluation script. Runs ABC CEC on all 100 output AIGs against their truth tables, measures area/delay/ADP for each, and prints a summary table with total ADP and ratio vs reference. Works on both Linux/WSL and Windows (auto-converts paths for WSL).
+
+**`result_logging.py`**
+Unified CSV logging layer. Every optimization stage appends results through this module using named appender functions (e.g. `append_deepsyn_structural_csv`, `append_semantic_split_csv`). Handles header-on-first-write and missing-field defaults. All log files follow the `stage_<name>_log.csv` naming convention.
